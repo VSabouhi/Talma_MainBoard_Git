@@ -91,6 +91,9 @@ uint8_t bed_confidence[BED_ROWS][BED_COLS];
 // بیت هر نود نشان می‌دهد که در cycle جاری تخت آپدیت شده یا نه
 uint32_t bed_sync_mask = 0U;
 
+
+/*test 1*/
+
 // شماره cycle سراسری تخت
 uint32_t bed_cycle = 0U;
 
