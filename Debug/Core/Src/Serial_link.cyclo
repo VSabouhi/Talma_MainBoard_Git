@@ -1,0 +1,4 @@
+../Core/Src/Serial_link.c:12:6:SerialLink_Init	1
+../Core/Src/Serial_link.c:18:10:SerialLink_TxDropped	1
+../Core/Src/Serial_link.c:20:12:SerialLink_SendNode32_Async	4
+../Core/Src/Serial_link.c:39:6:SerialLink_TxTask	2

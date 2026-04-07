@@ -1,0 +1,15 @@
+../Core/Src/freertos.c:139:6:MX_FREERTOS_Init	160	static,ignoring_inline_asm
+../Core/Src/freertos.c:231:6:StartDefaultTask	16	static
+../Core/Src/freertos.c:255:6:CanRxTask	200	static
+../Core/Src/freertos.c:423:16:BuildNodeFlags	24	static
+../Core/Src/freertos.c:441:16:SensorStatus_IsValid	16	static
+../Core/Src/freertos.c:470:16:SensorStatus_GetConfidence	16	static
+../Core/Src/freertos.c:496:16:BedMap_GetRow	16	static
+../Core/Src/freertos.c:503:16:BedMap_GetCol	16	static
+../Core/Src/freertos.c:510:13:BedModel_UpdateNode	32	static
+../Core/Src/freertos.c:540:13:BedSync_OnNodeUpdated	16	static
+../Core/Src/freertos.c:565:6:vApplicationMallocFailedHook	16	static,ignoring_inline_asm
+../Core/Src/freertos.c:572:6:vApplicationStackOverflowHook	24	static,ignoring_inline_asm
+../Core/Src/freertos.c:579:6:UartTestTask	56	static
+../Core/Src/freertos.c:596:6:Node1CmdTask	24	static
+../Core/Src/freertos.c:619:6:NodeMonitorTask	40	static
