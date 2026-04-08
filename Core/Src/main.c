@@ -29,6 +29,7 @@
 #include "queue.h"
 #include "can_rtos_rx.h"
 #include "uart_pkt.h"
+#include "node_state.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -52,64 +53,7 @@
 
 volatile uint32_t rx_dropped = 0;
 extern QueueHandle_t qCanRx;
-// -------- Sensor Assembler --------
-//static uint8_t sensors32[32];
-//static uint8_t chunk_mask = 0;      // بیت0..3
-//static uint32_t cycles_ok = 0;
-uint32_t last_rx_ms = 0;
-uint8_t can_ok = 0;
-uint8_t  sensors32[NODES][32];
-uint8_t  chunk_mask[NODES];
-uint32_t cycles_ok[NODES];
-uint32_t asm_start_ms[NODES];
 
-
-// مقدار واقعی سنسور (0..63)
-uint8_t  sensor_value[NODES][SENSOR_COUNT_PER_NODE];
-
-// وضعیت سنسور (0..3)
-uint8_t  sensor_status[NODES][SENSOR_COUNT_PER_NODE];
-
-// === [NEW] sensor validity mask ===
-// 1 = usable, 0 = invalid
-uint8_t  valid_mask[NODES][SENSOR_COUNT_PER_NODE];
-
-// === full bed model ===
-// مدل رسمی کل تخت روی Main
-// row = 0..31
-// col = 0..15
-uint8_t bed_value[BED_ROWS][BED_COLS];
-uint8_t bed_status[BED_ROWS][BED_COLS];
-uint8_t bed_valid[BED_ROWS][BED_COLS];
-uint8_t bed_confidence[BED_ROWS][BED_COLS];
-
-
-// ===  bed cycle sync state ===
-// بیت هر نود نشان می‌دهد که در cycle جاری تخت آپدیت شده یا نه
-uint32_t bed_sync_mask = 0U;
-
-
-/*test 1*/
-
-// شماره cycle سراسری تخت
-uint32_t bed_cycle = 0U;
-
-// اگر 1 شود یعنی یک snapshot کامل جدید از کل تخت آماده شده
-uint8_t bed_snapshot_ready = 0U;
-// sensor confidence level ===
-// 0   = no trust
-// 255 = full trust
-uint8_t  sensor_confidence[NODES][SENSOR_COUNT_PER_NODE];
-
-// node health/state tracking ===
-// آخرین زمان دریافت هر فریم از هر نود
-uint32_t node_last_frame_ms[NODES];
-
-// آخرین زمان کامل شدن 4 chunk برای هر نود
-uint32_t node_last_complete_ms[NODES];
-
-// وضعیت فعلی هر نود: ONLINE / STALE / OFFLINE
-uint8_t  node_state[NODES];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/

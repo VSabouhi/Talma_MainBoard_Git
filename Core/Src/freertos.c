@@ -28,12 +28,15 @@
 #include "can.h"        // <<< اضافه کن
 #include "can_rtos_rx.h"
 #include "app_can.h"
-#include "Serial_link.h"
-#include "uart_pkt.h"
+#include "Serial_link.h"   // ارسال از طریق queue#include "uart_pkt.h"
 #include  <stdio.h>
 #include <string.h>
 #include "can_rtos_tx.h"
-
+#include "bed_model.h"
+#include "sensor_store.h"
+#include "node_state.h"
+#include "bed_model.h"   // دسترسی به bed_cycle و bed_value
+#include "uart_pkt.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -56,10 +59,16 @@ typedef StaticTask_t osStaticThreadDef_t;
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN Variables */
 
+
+// === minimum time gap between full-bed snapshots sent to UI ===
+// جلوگیری از ارسال بیش از حد snapshot کامل
+#define BED_SNAPSHOT_MIN_PERIOD_MS   200U
+
 // === test feature switch ===
 // 0: disable periodic test command task
 // 1: enable periodic test command task
 #define ENABLE_NODE1_TEST_CMD_TASK   0
+#define DEBUG_SERIAL_TX_STATS    1
 // === debug print switches ===
 // 1: enable related debug prints
 // 0: disable related debug prints
@@ -69,36 +78,6 @@ typedef StaticTask_t osStaticThreadDef_t;
 
 
 extern volatile uint32_t rx_dropped;
-extern uint8_t sensors32[NODES][32];
-extern uint8_t sensor_value[NODES][SENSOR_COUNT_PER_NODE];
-extern uint8_t sensor_status[NODES][SENSOR_COUNT_PER_NODE];
-
-
-// ===  access full bed model arrays ===
-extern uint8_t bed_value[BED_ROWS][BED_COLS];
-extern uint8_t bed_status[BED_ROWS][BED_COLS];
-extern uint8_t bed_valid[BED_ROWS][BED_COLS];
-extern uint8_t bed_confidence[BED_ROWS][BED_COLS];
-
-// === access bed sync state ===
-extern uint32_t bed_sync_mask;
-extern uint32_t bed_cycle;
-extern uint8_t  bed_snapshot_ready;
-
-
-//  access sensor confidence array ===
-extern uint8_t sensor_confidence[NODES][SENSOR_COUNT_PER_NODE];
-extern uint8_t valid_mask[NODES][SENSOR_COUNT_PER_NODE];
-extern uint8_t chunk_mask[NODES];
-extern uint32_t cycles_ok[NODES];
-extern uint32_t asm_start_ms[NODES];
-extern uint32_t last_rx_ms;
-
-// === access node state tracking arrays ===
-extern uint32_t node_last_frame_ms[NODES];
-extern uint32_t node_last_complete_ms[NODES];
-extern uint8_t  node_state[NODES];
-
 
 
 osThreadId_t uartTestTaskHandle;
@@ -132,10 +111,6 @@ void UartTestTask(void *argument);
 static uint8_t BuildNodeFlags(uint8_t node);   // ===  build UART flags for one node ===
 static uint8_t SensorStatus_IsValid(uint8_t status);   // validity policy for one sensor status ===
 static uint8_t SensorStatus_GetConfidence(uint8_t status);   // map sensor status to confidence ===
-static uint8_t BedMap_GetRow(uint8_t node, uint8_t sensor_idx);   // === map node+sensor to bed row ===
-static uint8_t BedMap_GetCol(uint8_t sensor_idx);                 // ===  map sensor to bed col ===
-static void BedModel_UpdateNode(uint8_t node);                    // ===  copy one node into bed model ===
-static void BedSync_OnNodeUpdated(uint8_t node);   // ===  mark node update and complete bed cycle if ready ===
 /* USER CODE END FunctionPrototypes */
 
 void StartDefaultTask(void *argument);
@@ -253,13 +228,27 @@ void StartDefaultTask(void *argument)
 	//printf("CAN notif enabled\r\n");
 
   /* Infinite loop */
-  for(;;)
-  {
-  	 HAL_GPIO_TogglePin(LED1_GPIO_Port, LED1_Pin);
+	for(;;)
+	{
+	    HAL_GPIO_TogglePin(LED1_GPIO_Port, LED1_Pin);
 
-    osDelay(500);
+	#if DEBUG_SERIAL_TX_STATS
+	    printf("SerialLink dropped=%lu\r\n",
+	           (unsigned long)SerialLink_TxDropped());
+	#endif
 
-  }
+	    // === اگر یک snapshot کامل از تخت آماده شده ===
+	   /* if (bed_snapshot_ready != 0U)
+	    {
+	        // === ارسال کل تخت به UI ===
+	        UartPkt_SendBedSnapshot((uint16_t)bed_cycle, bed_value);
+
+	        // === reset flag تا دوباره ارسال نشود ===
+	        bed_snapshot_ready = 0U;
+	    }*/
+
+	    osDelay(500);   // کمی سریع‌تر برای پاسخ بهتر
+	}
   /* USER CODE END StartDefaultTask */
 }
 
@@ -275,6 +264,8 @@ void CanRxTask(void *argument)
   (void)argument;
 
   CanRxMsg m;
+  // === آخرین زمان enqueue شدن snapshot کامل تخت ===
+  static uint32_t last_bed_snapshot_tx_ms = 0U;
 
   // === [CONFIG] حداکثر فاصله مجاز بین chunk های یک assemble ===
   // اگر 4 فریم یک نود با فاصله خیلی زیاد برسند، assemble ریست می‌شود
@@ -387,10 +378,50 @@ void CanRxTask(void *argument)
       // این نود فعلاً online محسوب می‌شود
       // اگر بعداً داده نرسد، NodeMonitorTask آن را stale/offline می‌کند
       node_state[node] = NODE_STATE_ONLINE;
-      // === update full bed model for this node ===
-      BedModel_UpdateNode(node);
+      // === copy completed node sensor data into global bed model ===
+      BedModel_UpdateNode(node, sensor_value, sensor_status, valid_mask, sensor_confidence);
       // ===  update bed cycle sync state ===
       BedSync_OnNodeUpdated(node);
+
+      // === اگر یک snapshot کامل از تخت آماده شده ===
+      // این flag توسط BedSync تنظیم می‌شود
+
+      if (bed_snapshot_ready != 0U)
+      {
+          // === فقط اگر از آخرین ارسال snapshot کامل زمان کافی گذشته باشد ===
+          if ((now - last_bed_snapshot_tx_ms) >= BED_SNAPSHOT_MIN_PERIOD_MS)
+          {
+              // === اول snapshot فشار تخت ===
+              if (SerialLink_SendBedSnapshot_Async((uint16_t)bed_cycle) == pdPASS)
+              {
+                  // === بعد status تخت ===
+                  if (SerialLink_SendBedStatus_Async((uint16_t)bed_cycle) == pdPASS)
+                  {
+                      // === بعد وضعیت همه نودها ===
+                      if (SerialLink_SendNodeHealth_Async((uint16_t)bed_cycle) == pdPASS)
+                      {
+                          // === فقط وقتی هر سه enqueue موفق بودند، زمان ثبت شود ===
+                          last_bed_snapshot_tx_ms = now;
+                      }
+                      else
+                      {
+                          // printf("NODE HEALTH enqueue failed\r\n");
+                      }
+                  }
+                  else
+                  {
+                      // printf("BED STATUS enqueue failed\r\n");
+                  }
+              }
+              else
+              {
+                  // printf("BED SNAPSHOT enqueue failed\r\n");
+              }
+          }
+
+          // === در هر حالت flag ریست می‌شود ===
+          bed_snapshot_ready = 0U;
+      }
 
 	#if DEBUG_CAN_RX_COMPLETE
 
@@ -510,79 +541,6 @@ static uint8_t SensorStatus_GetConfidence(uint8_t status)
 }
 /*--------------------------------------------------------------------------------*/
 
-// === [NEW] map node+sensor to bed row ===
-// هر نود دو ردیف 16 تایی را پوشش می‌دهد:
-// sensor 0..15   -> row = 2*node
-// sensor 16..31  -> row = 2*node + 1
-static uint8_t BedMap_GetRow(uint8_t node, uint8_t sensor_idx)
-{
-  return (uint8_t)((2U * node) + (sensor_idx / 16U));
-}
-
-// === [NEW] map sensor index to bed column ===
-// داخل هر ردیف، ستون برابر 0..15 است
-static uint8_t BedMap_GetCol(uint8_t sensor_idx)
-{
-  return (uint8_t)(sensor_idx % 16U);
-}
-
-// === [NEW] copy one full node into bed model ===
-// وقتی 32 سنسور یک نود کامل شد، این تابع مدل کل تخت را آپدیت می‌کند
-static void BedModel_UpdateNode(uint8_t node)
-{
-  if (node >= (uint8_t)NODES)
-    return;
-
-  for (uint8_t i = 0; i < SENSOR_COUNT_PER_NODE; i++)
-  {
-    uint8_t row = BedMap_GetRow(node, i);
-    uint8_t col = BedMap_GetCol(i);
-
-    // محافظت برای اطمینان
-    if (row >= BED_ROWS) continue;
-    if (col >= BED_COLS) continue;
-
-    bed_value[row][col]      = sensor_value[node][i];
-    bed_status[row][col]     = sensor_status[node][i];
-    bed_valid[row][col]      = valid_mask[node][i];
-    bed_confidence[row][col] = sensor_confidence[node][i];
-  }
-}
-
-
-/*--------------------------------------------------------------------------------*/
-
-// === [NEW] bed cycle sync ===
-// هر بار که یک نود کامل شد، این تابع صدا زده می‌شود
-// اگر همه نودهای لازم در این دور آپدیت شده باشند:
-//   - bed_cycle++
-/*   - bed_snapshot_ready = 1
-     - bed_sync_mask reset for next round */
-static void BedSync_OnNodeUpdated(uint8_t node)
-{
-  if (node >= (uint8_t)NODES)
-    return;
-
-  // mark کن که این نود در round جاری تخت آپدیت شده
-  bed_sync_mask |= (1UL << node);
-
-  // اگر همه نودهای لازم حاضر شده‌اند => یک snapshot کامل جدید از تخت داریم
-  if ((bed_sync_mask & BED_REQUIRED_NODE_MASK) == BED_REQUIRED_NODE_MASK)
-  {
-    bed_cycle++;
-    bed_snapshot_ready = 1U;
-
-	#if DEBUG_BED_SYNC
-		// === [DEBUG] complete bed snapshot formed ===
-		printf("BED snapshot complete -> bed_cycle=%lu mask=0x%08lX\r\n",
-			   (unsigned long)bed_cycle,
-			   (unsigned long)bed_sync_mask);
-	#endif
-
-    // reset برای snapshot بعدی
-    bed_sync_mask = 0U;
-  }
-}
 /*--------------------------------------------------------------------------------*/
 
 void vApplicationMallocFailedHook(void)
