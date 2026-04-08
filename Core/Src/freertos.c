@@ -55,6 +55,19 @@ typedef StaticTask_t osStaticThreadDef_t;
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN Variables */
+
+// === test feature switch ===
+// 0: disable periodic test command task
+// 1: enable periodic test command task
+#define ENABLE_NODE1_TEST_CMD_TASK   0
+// === debug print switches ===
+// 1: enable related debug prints
+// 0: disable related debug prints
+#define DEBUG_CAN_RX_COMPLETE   1
+#define DEBUG_BED_SYNC          1
+#define DEBUG_NODE_MONITOR      1
+
+
 extern volatile uint32_t rx_dropped;
 extern uint8_t sensors32[NODES][32];
 extern uint8_t sensor_value[NODES][SENSOR_COUNT_PER_NODE];
@@ -165,11 +178,13 @@ void MX_FREERTOS_Init(void) {
 	  .priority = (osPriority_t) osPriorityNormal,
 	};
 
+	#if ENABLE_NODE1_TEST_CMD_TASK
 	const osThreadAttr_t node1CmdTask_attributes = {
 	  .name = "node1CmdTask",
 	  .stack_size = 512 * 4,
-	  .priority = (osPriority_t) osPriorityLow,  // یا Normal
+	  .priority = (osPriority_t) osPriorityLow,
 	};
+	#endif
 
 	// === attributes for node monitor task ===
 	const osThreadAttr_t nodeMonitorTask_attributes = {
@@ -206,7 +221,10 @@ void MX_FREERTOS_Init(void) {
 
   //uartTestTaskHandle = osThreadNew(UartTestTask, NULL, &uartTestTask_attributes);
   serialTxTaskHandle  = osThreadNew(SerialLink_TxTask, NULL, &serialTxTask_attributes);
-  osThreadNew(Node1CmdTask, NULL, &node1CmdTask_attributes);
+	#if ENABLE_NODE1_TEST_CMD_TASK
+	  // === create periodic test command task only when enabled ===
+	  osThreadNew(Node1CmdTask, NULL, &node1CmdTask_attributes);
+	#endif
 
   // === create node monitor task ===
   nodeMonitorTaskHandle = osThreadNew(NodeMonitorTask, NULL, &nodeMonitorTask_attributes);
@@ -374,29 +392,32 @@ void CanRxTask(void *argument)
       // ===  update bed cycle sync state ===
       BedSync_OnNodeUpdated(node);
 
-      printf("NODE %u state=%u flags=0x%02X node_cycle=%lu bed_cycle=%lu sync=0x%08lX | "
-             "S0->R%uC%u V=%u S=%u M=%u C=%u | "
-             "S16->R%uC%u V=%u S=%u M=%u C=%u\r\n",
-             node,
-             node_state[node],
-             BuildNodeFlags(node),
-             (unsigned long)cycles_ok[node],
-             (unsigned long)bed_cycle,
-             (unsigned long)bed_sync_mask,
+	#if DEBUG_CAN_RX_COMPLETE
 
-             BedMap_GetRow(node, 0),
-             BedMap_GetCol(0),
-             sensor_value[node][0],
-             sensor_status[node][0],
-             valid_mask[node][0],
-             sensor_confidence[node][0],
+		  printf("NODE %u state=%u flags=0x%02X node_cycle=%lu bed_cycle=%lu sync=0x%08lX | "
+				 "S0->R%uC%u V=%u S=%u M=%u C=%u | "
+				 "S16->R%uC%u V=%u S=%u M=%u C=%u\r\n",
+				 node,
+				 node_state[node],
+				 BuildNodeFlags(node),
+				 (unsigned long)cycles_ok[node],
+				 (unsigned long)bed_cycle,
+				 (unsigned long)bed_sync_mask,
 
-             BedMap_GetRow(node, 16),
-             BedMap_GetCol(16),
-             sensor_value[node][16],
-             sensor_status[node][16],
-             valid_mask[node][16],
-             sensor_confidence[node][16]);
+				 BedMap_GetRow(node, 0),
+				 BedMap_GetCol(0),
+				 sensor_value[node][0],
+				 sensor_status[node][0],
+				 valid_mask[node][0],
+				 sensor_confidence[node][0],
+
+				 BedMap_GetRow(node, 16),
+				 BedMap_GetCol(16),
+				 sensor_value[node][16],
+				 sensor_status[node][16],
+				 valid_mask[node][16],
+				 sensor_confidence[node][16]);
+	#endif
       // ===  ساخت flags برای UI ===
       // فعلاً فقط state نود داخل flags قرار می‌گیرد
       {
@@ -551,10 +572,12 @@ static void BedSync_OnNodeUpdated(uint8_t node)
     bed_cycle++;
     bed_snapshot_ready = 1U;
 
-    // === [DEBUG] complete bed snapshot formed ===
-    printf("BED snapshot complete -> bed_cycle=%lu mask=0x%08lX\r\n",
-           (unsigned long)bed_cycle,
-           (unsigned long)bed_sync_mask);
+	#if DEBUG_BED_SYNC
+		// === [DEBUG] complete bed snapshot formed ===
+		printf("BED snapshot complete -> bed_cycle=%lu mask=0x%08lX\r\n",
+			   (unsigned long)bed_cycle,
+			   (unsigned long)bed_sync_mask);
+	#endif
 
     // reset برای snapshot بعدی
     bed_sync_mask = 0U;
@@ -671,14 +694,15 @@ void NodeMonitorTask(void *argument)
       // === [EVENT] فقط وقتی state تغییر کرد ===
       if (prev_state[n] != new_state)
       {
-    	  if (n == 1U)
-    	  {
-    	    printf("NODE %u state -> %u (age=%lu ms)\r\n",
-    	           n,
-    	           new_state,
-    	           (unsigned long)((node_last_complete_ms[n] == 0U) ? 0U : (now - node_last_complete_ms[n])));
-    	  }
-
+		#if DEBUG_NODE_MONITOR
+			  if (n == 1U)
+			  {
+				printf("NODE %u state -> %u (age=%lu ms)\r\n",
+					   n,
+					   new_state,
+					   (unsigned long)((node_last_complete_ms[n] == 0U) ? 0U : (now - node_last_complete_ms[n])));
+			  }
+		#endif
         // === [NEW] وقتی state عوض شد، یک packet برای UI بفرست ===
         // با آخرین raw data موجود و flags جدید
         {

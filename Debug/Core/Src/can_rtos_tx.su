@@ -1,4 +1,0 @@
-../Core/Src/can_rtos_tx.c:21:6:CanRtosTx_Init	24	static,ignoring_inline_asm
-../Core/Src/can_rtos_tx.c:32:10:CanRtosTx_Dropped	4	static
-../Core/Src/can_rtos_tx.c:34:12:CanRtosTx_SendStd_Async	40	static
-../Core/Src/can_rtos_tx.c:57:6:CanTxTask	72	static

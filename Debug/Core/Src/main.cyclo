@@ -1,8 +1,0 @@
-../Core/Src/main.c:128:5:_write	1
-../Core/Src/main.c:134:13:CAN_Filter_0x100_to_0x1FF	2
-../Core/Src/main.c:231:13:CAN_StartWithIrq	3
-../Core/Src/main.c:248:6:HAL_CAN_RxFifo0MsgPendingCallback	1
-../Core/Src/main.c:262:5:main	1
-../Core/Src/main.c:330:6:SystemClock_Config	4
-../Core/Src/main.c:403:6:MPU_Config	1
-../Core/Src/main.c:434:6:Error_Handler	1

@@ -1,3 +1,0 @@
-../Core/Src/can_rtos_rx.c:19:6:CanRtosRx_Init	24	static,ignoring_inline_asm
-../Core/Src/can_rtos_rx.c:34:10:CanRtosRx_Dropped	4	static
-../Core/Src/can_rtos_rx.c:37:6:CanRtosRx_OnFifo0Pending	56	static,ignoring_inline_asm
