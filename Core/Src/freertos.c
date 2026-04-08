@@ -723,6 +723,7 @@ void NodeMonitorTask(void *argument)
       }
     }
 
+
     osDelay(monitor_period_ms);
   }
 }
