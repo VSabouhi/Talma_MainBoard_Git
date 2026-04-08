@@ -50,8 +50,7 @@
 
 /* USER CODE BEGIN PV */
 
-uint8_t tes1;
-
+uint8_t test4;
 
 volatile uint32_t rx_dropped = 0;
 extern QueueHandle_t qCanRx;

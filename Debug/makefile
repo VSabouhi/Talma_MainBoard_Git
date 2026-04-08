@@ -1,6 +1,6 @@
 ################################################################################
 # Automatically-generated file. Do not edit!
-# Toolchain: GNU Tools for STM32 (13.3.rel1)
+# Toolchain: GNU Tools for STM32 (12.3.rel1)
 ################################################################################
 
 -include ../makefile.init
@@ -38,34 +38,34 @@ $(wildcard ../makefile.init) \
 $(wildcard ../makefile.targets) \
 
 
-BUILD_ARTIFACT_NAME := Talma_MainBoard_Git
+BUILD_ARTIFACT_NAME := Talma_Board_Main
 BUILD_ARTIFACT_EXTENSION := elf
 BUILD_ARTIFACT_PREFIX :=
 BUILD_ARTIFACT := $(BUILD_ARTIFACT_PREFIX)$(BUILD_ARTIFACT_NAME)$(if $(BUILD_ARTIFACT_EXTENSION),.$(BUILD_ARTIFACT_EXTENSION),)
 
 # Add inputs and outputs from these tool invocations to the build variables 
 EXECUTABLES += \
-Talma_MainBoard_Git.elf \
+Talma_Board_Main.elf \
 
 MAP_FILES += \
-Talma_MainBoard_Git.map \
+Talma_Board_Main.map \
 
 SIZE_OUTPUT += \
 default.size.stdout \
 
 OBJDUMP_LIST += \
-Talma_MainBoard_Git.list \
+Talma_Board_Main.list \
 
 
 # All Target
 all: main-build
 
 # Main-build Target
-main-build: Talma_MainBoard_Git.elf secondary-outputs
+main-build: Talma_Board_Main.elf secondary-outputs
 
 # Tool invocations
-Talma_MainBoard_Git.elf Talma_MainBoard_Git.map: $(OBJS) $(USER_OBJS) D:\gKteso\TALMA\Software\ARM\STM32767\Talma_MainBoard_Git\STM32F767ZITX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-gcc -o "Talma_MainBoard_Git.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m7 -T"D:\gKteso\TALMA\Software\ARM\STM32767\Talma_MainBoard_Git\STM32F767ZITX_FLASH.ld" --specs=nosys.specs -Wl,-Map="Talma_MainBoard_Git.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
+Talma_Board_Main.elf Talma_Board_Main.map: $(OBJS) $(USER_OBJS) F:\gKteso\Software\ARM\STM32767\Talma_MainBoard_Git\Talma_Board_Main\STM32F767ZITX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-gcc -o "Talma_Board_Main.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m7 -T"F:\gKteso\Software\ARM\STM32767\Talma_MainBoard_Git\Talma_Board_Main\STM32F767ZITX_FLASH.ld" --specs=nosys.specs -Wl,-Map="Talma_Board_Main.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 
@@ -74,14 +74,14 @@ default.size.stdout: $(EXECUTABLES) makefile objects.list $(OPTIONAL_TOOL_DEPS)
 	@echo 'Finished building: $@'
 	@echo ' '
 
-Talma_MainBoard_Git.list: $(EXECUTABLES) makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-objdump -h -S $(EXECUTABLES) > "Talma_MainBoard_Git.list"
+Talma_Board_Main.list: $(EXECUTABLES) makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-objdump -h -S $(EXECUTABLES) > "Talma_Board_Main.list"
 	@echo 'Finished building: $@'
 	@echo ' '
 
 # Other Targets
 clean:
-	-$(RM) Talma_MainBoard_Git.elf Talma_MainBoard_Git.list Talma_MainBoard_Git.map default.size.stdout
+	-$(RM) Talma_Board_Main.elf Talma_Board_Main.list Talma_Board_Main.map default.size.stdout
 	-@echo ' '
 
 secondary-outputs: $(SIZE_OUTPUT) $(OBJDUMP_LIST)
