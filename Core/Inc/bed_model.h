@@ -1,8 +1,10 @@
 #ifndef INC_BED_MODEL_H_
 #define INC_BED_MODEL_H_
+/*----------------------------------------------------------------------------*/
 
 #include <stdint.h>
 #include "main.h"
+/*----------------------------------------------------------------------------*/
 
 // === full bed model arrays ===
 // مدل کامل تخت (32×16)
@@ -11,6 +13,13 @@ extern uint8_t bed_value[BED_ROWS][BED_COLS];
 extern uint8_t bed_status[BED_ROWS][BED_COLS];
 extern uint8_t bed_valid[BED_ROWS][BED_COLS];
 extern uint8_t bed_confidence[BED_ROWS][BED_COLS];
+
+// === send buffer for UI ===
+// این بافرها فقط برای ارسال snapshot پایدار به UI استفاده می‌شوند
+extern uint8_t bed_value_send[BED_ROWS][BED_COLS];
+extern uint8_t bed_status_send[BED_ROWS][BED_COLS];
+extern uint8_t bed_valid_send[BED_ROWS][BED_COLS];
+extern uint8_t bed_confidence_send[BED_ROWS][BED_COLS];
 
 // === bed synchronization state ===
 // بیت هر نود: آیا در cycle جاری آپدیت شده یا نه
@@ -22,6 +31,8 @@ extern uint32_t bed_cycle;
 // اگر 1 شود یعنی یک snapshot کامل جدید از کل تخت آماده شده
 extern uint8_t  bed_snapshot_ready;
 
+
+/*----------------------------------------------------------------------------*/
 
 // === mapping helpers ===
 // تبدیل node + sensor index → مختصات تخت
@@ -49,5 +60,12 @@ void BedModel_UpdateNode(uint8_t node,
 // → bed_cycle++
 // → bed_snapshot_ready = 1
 void BedSync_OnNodeUpdated(uint8_t node);
+/*----------------------------------------------------------------------------*/
+
+
+/*----------------------------------------------------------------------------*/
+
+
+/*----------------------------------------------------------------------------*/
 
 #endif /* INC_BED_MODEL_H_ */

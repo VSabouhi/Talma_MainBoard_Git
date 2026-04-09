@@ -274,6 +274,10 @@ void CanRxTask(void *argument)
   // === [STAT] شمارش خطای enqueue به UART TX queue ===
   static volatile uint32_t tx_drop = 0;
 
+  // === شناسه فریم ارسالی به UI ===
+  // هر بار که یک snapshot کامل برای UI enqueue می‌شود، این مقدار یکی زیاد می‌شود
+  static uint16_t ui_frame_id = 0U;
+
   for (;;)
   {
     // === [RX] منتظر پیام از صف CAN RX ===
@@ -391,14 +395,18 @@ void CanRxTask(void *argument)
           // === فقط اگر از آخرین ارسال snapshot کامل زمان کافی گذشته باشد ===
           if ((now - last_bed_snapshot_tx_ms) >= BED_SNAPSHOT_MIN_PERIOD_MS)
           {
+              // === یک شناسه جدید برای این فریم UI بساز ===
+              // هر سه packet زیر باید همین شناسه مشترک را داشته باشند
+              uint16_t frame_id = ++ui_frame_id;
+
               // === اول snapshot فشار تخت ===
-              if (SerialLink_SendBedSnapshot_Async((uint16_t)bed_cycle) == pdPASS)
+              if (SerialLink_SendBedSnapshot_Async(frame_id) == pdPASS)
               {
                   // === بعد status تخت ===
-                  if (SerialLink_SendBedStatus_Async((uint16_t)bed_cycle) == pdPASS)
+                  if (SerialLink_SendBedStatus_Async(frame_id) == pdPASS)
                   {
                       // === بعد وضعیت همه نودها ===
-                      if (SerialLink_SendNodeHealth_Async((uint16_t)bed_cycle) == pdPASS)
+                      if (SerialLink_SendNodeHealth_Async(frame_id) == pdPASS)
                       {
                           // === فقط وقتی هر سه enqueue موفق بودند، زمان ثبت شود ===
                           last_bed_snapshot_tx_ms = now;
@@ -420,6 +428,7 @@ void CanRxTask(void *argument)
           }
 
           // === در هر حالت flag ریست می‌شود ===
+          // اگر snapshot جدید کامل شود دوباره set خواهد شد
           bed_snapshot_ready = 0U;
       }
 

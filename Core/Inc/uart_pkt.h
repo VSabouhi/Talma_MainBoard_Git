@@ -16,9 +16,18 @@
 #define PKT_TYPE_BED_SNAPSHOT  0x20   // packet جدید برای کل تخت
 #define PKT_TYPE_BED_STATUS    0x22   //
 #define PKT_TYPE_NODE_HEALTH   0x30   // وضعیت همه نودهانقشه وضعیت کل تخت
+
+#define PKT_HAS_FRAME_ID   1
 /*----------------------------------------------------------------------------*/
 // === ارسال snapshot کامل تخت (32×16) ===
-void UartPkt_SendBedSnapshot(uint16_t bed_cycle, const uint8_t bed_value[BED_ROWS][BED_COLS]);
+void UartPkt_SendBedSnapshot(uint16_t frame_id,
+                              const uint8_t bed_value[BED_ROWS][BED_COLS]);
+
+void UartPkt_SendBedStatus(uint16_t frame_id,
+                            const uint8_t bed_status[BED_ROWS][BED_COLS]);
+
+void UartPkt_SendNodeHealth(uint16_t frame_id,
+                            const uint8_t node_state[NODES]);
 /*----------------------------------------------------------------------------*/
 void UartPkt_Init(void);
 void UartTx_Init(void);

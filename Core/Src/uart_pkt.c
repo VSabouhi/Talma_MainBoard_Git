@@ -73,6 +73,9 @@ void UartPkt_SendBedSnapshot(uint16_t bed_cycle,
   // [520] CRC0
   // [521] CRC1
 
+	// NOTE:
+	// bed_cycle در این مرحله نقش frame_id برای UI را دارد
+
   uint8_t pkt[522];
   uint16_t k = 8;
 
