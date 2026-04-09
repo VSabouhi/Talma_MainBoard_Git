@@ -42,6 +42,7 @@
 #include "risk_engine.h"   // محاسبه risk score
 #include "alert_engine.h"
 #include "recommendation.h"   // تولید توصیه عملی
+#include "app_config.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -84,13 +85,6 @@ static uint32_t last_debug_print = 0;
 // 0: disable periodic test command task
 // 1: enable periodic test command task
 #define ENABLE_NODE1_TEST_CMD_TASK   0
-#define DEBUG_SERIAL_TX_STATS        0
-// === debug print switches ===
-// 1: enable related debug prints
-// 0: disable related debug prints
-#define DEBUG_CAN_RX_COMPLETE   0
-#define DEBUG_BED_SYNC          1
-#define DEBUG_NODE_MONITOR      1
 
 extern volatile uint32_t rx_dropped;
 
@@ -436,40 +430,23 @@ void CanRxTask(void *argument)
                              &g_movement,
                              &g_recommendation);
 
-      #if DEBUG_ZONE_ANALYSIS
-          printf("ZONE: sacrum avg=%u peak=%u valid=%u active=%u | heelL avg=%u | heelR avg=%u\r\n",
-                 g_zone_result.zone[ZONE_SACRUM].avg,
-                 g_zone_result.zone[ZONE_SACRUM].peak,
-                 g_zone_result.zone[ZONE_SACRUM].valid_cells,
-                 g_zone_result.zone[ZONE_SACRUM].active_cells,
-                 g_zone_result.zone[ZONE_LEFT_HEEL].avg,
-                 g_zone_result.zone[ZONE_RIGHT_HEEL].avg);
 
-          // === [DEBUG] find first active valid cell in stable snapshot ===
-          for (uint8_t r = 0; r < BED_ROWS; r++)
-          {
-              for (uint8_t c = 0; c < BED_COLS; c++)
-              {
-                  if ((bed_valid_send[r][c] != 0U) && (bed_value_send[r][c] > 0U))
-                  {
-                      printf("ACTIVE CELL: row=%u col=%u val=%u status=%u valid=%u\r\n",
-                             r,
-                             c,
-                             bed_value_send[r][c],
-                             bed_status_send[r][c],
-                             bed_valid_send[r][c]);
-
-                      // فقط اولین سلول فعال را چاپ کن
-                      r = BED_ROWS;
-                      break;
-                  }
-              }
-          }
-      #endif
 
           if ((now - last_debug_print) >= DEBUG_PRINT_PERIOD_MS)
           {
               last_debug_print = now;
+
+
+				#if DEBUG_ZONE_ANALYSIS
+					printf("ZONE: sacrum avg=%u peak=%u valid=%u active=%u | heelL avg=%u | heelR avg=%u\r\n",
+						   g_zone_result.zone[ZONE_SACRUM].avg,
+						   g_zone_result.zone[ZONE_SACRUM].peak,
+						   g_zone_result.zone[ZONE_SACRUM].valid_cells,
+						   g_zone_result.zone[ZONE_SACRUM].active_cells,
+						   g_zone_result.zone[ZONE_LEFT_HEEL].avg,
+						   g_zone_result.zone[ZONE_RIGHT_HEEL].avg);
+
+				#endif
 
 			  #if DEBUG_ALERT
 				  printf("ALERT: active=%u type=%u sev=%u dur=%lu s\r\n",
@@ -499,6 +476,15 @@ void CanRxTask(void *argument)
 				         g_alert.active,
 				         g_recommendation.code,
 				         g_zone_result.zone[ZONE_SACRUM].avg);
+			#endif
+
+			#if DEBUG_SUMMARY
+				printf("SUMMARY: risk=%u mov=%u alert=%u rec=%u sac_avg=%u\r\n",
+					   g_risk_result.score,
+					   g_movement.detected,
+					   g_alert.active,
+					   g_recommendation.code,
+					   g_zone_result.zone[ZONE_SACRUM].avg);
 			#endif
           }
 
