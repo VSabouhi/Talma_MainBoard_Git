@@ -37,6 +37,11 @@
 #include "node_state.h"
 #include "bed_model.h"   // دسترسی به bed_cycle و bed_value
 #include "uart_pkt.h"
+#include "zone_analysis.h"   // تحلیل ناحیه‌های بالینی
+#include "movement.h"
+#include "risk_engine.h"   // محاسبه risk score
+#include "alert_engine.h"
+#include "recommendation.h"   // تولید توصیه عملی
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -58,7 +63,18 @@ typedef StaticTask_t osStaticThreadDef_t;
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN Variables */
-
+// ===  zone analysis result ===
+// خروجی تحلیل ناحیه‌های تخت
+static ZoneAnalysisResult_t g_zone_result;
+static MovementResult_t g_movement;
+// ===  risk engine result ===
+static RiskResult_t g_risk_result;
+static AlertResult_t g_alert;
+// === recommendation result ===
+static RecommendationResult_t g_recommendation;
+// === debug print throttle ===
+// جلوگیری از spam شدن UART
+static uint32_t last_debug_print = 0;
 
 // === minimum time gap between full-bed snapshots sent to UI ===
 // جلوگیری از ارسال بیش از حد snapshot کامل
@@ -68,14 +84,13 @@ typedef StaticTask_t osStaticThreadDef_t;
 // 0: disable periodic test command task
 // 1: enable periodic test command task
 #define ENABLE_NODE1_TEST_CMD_TASK   0
-#define DEBUG_SERIAL_TX_STATS    1
+#define DEBUG_SERIAL_TX_STATS        0
 // === debug print switches ===
 // 1: enable related debug prints
 // 0: disable related debug prints
-#define DEBUG_CAN_RX_COMPLETE   1
+#define DEBUG_CAN_RX_COMPLETE   0
 #define DEBUG_BED_SYNC          1
 #define DEBUG_NODE_MONITOR      1
-
 
 extern volatile uint32_t rx_dropped;
 
@@ -132,7 +147,10 @@ void MX_FREERTOS_Init(void) {
 	configASSERT(qCanRx != NULL);
 
 	SerialLink_Init();
-
+	// === initialize clinical zone layout ===
+	ZoneAnalysis_Init();
+	Movement_Init();
+	AlertEngine_Init();
 
 	/*const osThreadAttr_t uartTestTask_attributes = {
 	  .name = "uartTestTask",
@@ -278,6 +296,8 @@ void CanRxTask(void *argument)
   // هر بار که یک snapshot کامل برای UI enqueue می‌شود، این مقدار یکی زیاد می‌شود
   static uint16_t ui_frame_id = 0U;
 
+  uint16_t frame_id = 0;
+
   for (;;)
   {
     // === [RX] منتظر پیام از صف CAN RX ===
@@ -392,24 +412,155 @@ void CanRxTask(void *argument)
 
       if (bed_snapshot_ready != 0U)
       {
+          // === [NEW] run zone analysis on stable snapshot ===
+          ZoneAnalysis_Run(bed_value_send,
+                           bed_valid_send,
+                           &g_zone_result);
+
+          // === run movement detection on stable snapshot ===
+          Movement_Run(bed_value_send,
+                       bed_valid_send,
+                       &g_movement);
+
+          // === run simple risk score engine ===
+          RiskEngine_Run(&g_zone_result,
+                         &g_movement,
+                         &g_risk_result);
+
+          AlertEngine_Run(&g_risk_result,
+                          &g_movement,
+                          &g_alert);
+          // === generate recommendation from current clinical summary ===
+          Recommendation_Run(&g_risk_result,
+                             &g_alert,
+                             &g_movement,
+                             &g_recommendation);
+
+      #if DEBUG_ZONE_ANALYSIS
+          printf("ZONE: sacrum avg=%u peak=%u valid=%u active=%u | heelL avg=%u | heelR avg=%u\r\n",
+                 g_zone_result.zone[ZONE_SACRUM].avg,
+                 g_zone_result.zone[ZONE_SACRUM].peak,
+                 g_zone_result.zone[ZONE_SACRUM].valid_cells,
+                 g_zone_result.zone[ZONE_SACRUM].active_cells,
+                 g_zone_result.zone[ZONE_LEFT_HEEL].avg,
+                 g_zone_result.zone[ZONE_RIGHT_HEEL].avg);
+
+          // === [DEBUG] find first active valid cell in stable snapshot ===
+          for (uint8_t r = 0; r < BED_ROWS; r++)
+          {
+              for (uint8_t c = 0; c < BED_COLS; c++)
+              {
+                  if ((bed_valid_send[r][c] != 0U) && (bed_value_send[r][c] > 0U))
+                  {
+                      printf("ACTIVE CELL: row=%u col=%u val=%u status=%u valid=%u\r\n",
+                             r,
+                             c,
+                             bed_value_send[r][c],
+                             bed_status_send[r][c],
+                             bed_valid_send[r][c]);
+
+                      // فقط اولین سلول فعال را چاپ کن
+                      r = BED_ROWS;
+                      break;
+                  }
+              }
+          }
+      #endif
+
+          if ((now - last_debug_print) >= DEBUG_PRINT_PERIOD_MS)
+          {
+              last_debug_print = now;
+
+			  #if DEBUG_ALERT
+				  printf("ALERT: active=%u type=%u sev=%u dur=%lu s\r\n",
+						 g_alert.active,
+						 g_alert.type,
+						 g_alert.severity,
+						 (unsigned long)g_alert.duration_s);
+			  #endif
+
+			  #if DEBUG_RISK
+				  printf("RISK: score=%u level=%u\r\n",
+						 g_risk_result.score,
+						 g_risk_result.level);
+			  #endif
+
+			  #if DEBUG_MOVEMENT
+				  printf("MOV: energy=%u detected=%u\r\n",
+						 g_movement.energy,
+						 g_movement.detected);
+			  #endif
+
+			#if DEBUG_RECOMMENDATION
+				  printf("SUMMARY: frame=%u risk=%u mov=%u alert=%u rec=%u sac_avg=%u\r\n",
+				         frame_id,
+				         g_risk_result.score,
+				         g_movement.detected,
+				         g_alert.active,
+				         g_recommendation.code,
+				         g_zone_result.zone[ZONE_SACRUM].avg);
+			#endif
+          }
+
+
+
+
           // === فقط اگر از آخرین ارسال snapshot کامل زمان کافی گذشته باشد ===
           if ((now - last_bed_snapshot_tx_ms) >= BED_SNAPSHOT_MIN_PERIOD_MS)
           {
               // === یک شناسه جدید برای این فریم UI بساز ===
               // هر سه packet زیر باید همین شناسه مشترک را داشته باشند
-              uint16_t frame_id = ++ui_frame_id;
+              frame_id = ++ui_frame_id;
 
               // === اول snapshot فشار تخت ===
+
+              // === calculate time since last movement in seconds ===
+              // اگر هنوز هیچ حرکتی ثبت نشده باشد، مقدار 0xFFFF بفرست
+              uint16_t time_since_last_movement_s = 0xFFFFU;
+
+              if (g_movement.last_movement_ms != 0U)
+              {
+                  uint32_t dt_ms = now - g_movement.last_movement_ms;
+                  uint32_t dt_s = dt_ms / 1000U;
+
+                  if (dt_s > 0xFFFFU)
+                      dt_s = 0xFFFFU;
+
+                  time_since_last_movement_s = (uint16_t)dt_s;
+              }
+
+              // === enqueue full UI frame ===
               if (SerialLink_SendBedSnapshot_Async(frame_id) == pdPASS)
               {
-                  // === بعد status تخت ===
                   if (SerialLink_SendBedStatus_Async(frame_id) == pdPASS)
                   {
-                      // === بعد وضعیت همه نودها ===
                       if (SerialLink_SendNodeHealth_Async(frame_id) == pdPASS)
                       {
-                          // === فقط وقتی هر سه enqueue موفق بودند، زمان ثبت شود ===
-                          last_bed_snapshot_tx_ms = now;
+                          // === enqueue compact summary packet ===
+                          if (SerialLink_SendSummary_Async(
+                                  frame_id,
+                                  g_risk_result.score,
+                                  g_risk_result.level,
+                                  g_movement.detected,
+                                  time_since_last_movement_s,
+                                  g_alert.active,
+                                  g_alert.type,
+                                  g_alert.severity,
+                                  (uint16_t)g_alert.duration_s,
+                                  g_recommendation.code,
+                                  g_recommendation.priority,
+                                  g_zone_result.zone[ZONE_SACRUM].avg,
+                                  g_zone_result.zone[ZONE_SACRUM].peak,
+                                  g_zone_result.zone[ZONE_LEFT_HEEL].avg,
+                                  g_zone_result.zone[ZONE_RIGHT_HEEL].avg) == pdPASS)
+                          {
+                              // === فقط وقتی کل UI frame enqueue شد، زمان ثبت شود ===
+                              last_bed_snapshot_tx_ms = now;
+                          }
+                          else
+                          {
+                              // printf("SUMMARY enqueue failed\r\n");
+                          }
                       }
                       else
                       {
@@ -427,11 +578,9 @@ void CanRxTask(void *argument)
               }
           }
 
-          // === در هر حالت flag ریست می‌شود ===
-          // اگر snapshot جدید کامل شود دوباره set خواهد شد
+          // === این snapshot پردازش شد ===
           bed_snapshot_ready = 0U;
       }
-
 	#if DEBUG_CAN_RX_COMPLETE
 
 		  printf("NODE %u state=%u flags=0x%02X node_cycle=%lu bed_cycle=%lu sync=0x%08lX | "

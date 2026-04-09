@@ -124,6 +124,18 @@ void Error_Handler(void);
 // === [TUNED] timeout thresholds with some jitter margin ===
 #define NODE_STALE_TIMEOUT_MS    1600U
 #define NODE_OFFLINE_TIMEOUT_MS  3500U
+
+
+
+
+// === DEBUG FLAGS ===
+#define DEBUG_ZONE_ANALYSIS   0
+#define DEBUG_MOVEMENT        0
+#define DEBUG_RISK            0
+#define DEBUG_ALERT           1
+#define DEBUG_RECOMMENDATION  1
+
+#define DEBUG_PRINT_PERIOD_MS   500
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus

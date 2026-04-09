@@ -198,3 +198,61 @@ void UartPkt_SendNodeHealth(uint16_t bed_cycle,
   HAL_UART_Transmit(&huart4, pkt, sizeof(pkt), 100);
 }
 /*----------------------------------------------------------------------------*/
+// === ارسال summary packet برای UI ===
+// این packet فشرده است و مهم‌ترین متریک‌های بالادستی را یکجا می‌فرستد
+void UartPkt_SendSummary(uint16_t frame_id,
+                         uint8_t risk_score,
+                         uint8_t risk_level,
+                         uint8_t movement_detected,
+                         uint16_t time_since_last_movement_s,
+                         uint8_t alert_active,
+                         uint8_t alert_type,
+                         uint8_t alert_severity,
+                         uint16_t alert_duration_s,
+                         uint8_t recommendation_code,
+                         uint8_t recommendation_priority,
+                         uint8_t sacrum_avg,
+                         uint8_t sacrum_peak,
+                         uint8_t heel_left_avg,
+                         uint8_t heel_right_avg)
+{
+  uint8_t pkt[24];
+
+  pkt[0] = PKT_SOF0;
+  pkt[1] = PKT_SOF1;
+  pkt[2] = PKT_TYPE_SUMMARY;
+  pkt[3] = g_seq++;
+
+  pkt[4]  = (uint8_t)(frame_id & 0xFF);
+  pkt[5]  = (uint8_t)((frame_id >> 8) & 0xFF);
+
+  pkt[6]  = risk_score;
+  pkt[7]  = risk_level;
+  pkt[8]  = movement_detected;
+
+  pkt[9]  = (uint8_t)(time_since_last_movement_s & 0xFF);
+  pkt[10] = (uint8_t)((time_since_last_movement_s >> 8) & 0xFF);
+
+  pkt[11] = alert_active;
+  pkt[12] = alert_type;
+  pkt[13] = alert_severity;
+
+  pkt[14] = (uint8_t)(alert_duration_s & 0xFF);
+  pkt[15] = (uint8_t)((alert_duration_s >> 8) & 0xFF);
+
+  pkt[16] = recommendation_code;
+  pkt[17] = recommendation_priority;
+
+  pkt[18] = sacrum_avg;
+  pkt[19] = sacrum_peak;
+  pkt[20] = heel_left_avg;
+  pkt[21] = heel_right_avg;
+
+  // === CRC موقت ===
+  pkt[22] = PKT_CRC0;
+  pkt[23] = PKT_CRC1;
+
+  HAL_UART_Transmit(&huart4, pkt, sizeof(pkt), 100);
+}
+/*----------------------------------------------------------------------------*/
+

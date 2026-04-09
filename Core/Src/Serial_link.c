@@ -160,6 +160,26 @@ void SerialLink_TxTask(void *argument)
           UartPkt_SendNodeHealth(m.payload.health.bed_cycle, node_state);
           break;
 
+        case SL_MSG_TYPE_SUMMARY:
+          // === ارسال summary packet برای UI ===
+          UartPkt_SendSummary(
+              m.payload.summary.frame_id,
+              m.payload.summary.risk_score,
+              m.payload.summary.risk_level,
+              m.payload.summary.movement_detected,
+              m.payload.summary.time_since_last_movement_s,
+              m.payload.summary.alert_active,
+              m.payload.summary.alert_type,
+              m.payload.summary.alert_severity,
+              m.payload.summary.alert_duration_s,
+              m.payload.summary.recommendation_code,
+              m.payload.summary.recommendation_priority,
+              m.payload.summary.sacrum_avg,
+              m.payload.summary.sacrum_peak,
+              m.payload.summary.heel_left_avg,
+              m.payload.summary.heel_right_avg);
+          break;
+
         default:
           // === نوع پیام ناشناخته: فعلاً نادیده بگیر ===
           break;
@@ -196,3 +216,60 @@ BaseType_t SerialLink_SendNodeHealth_Async(uint16_t bed_cycle)
   return pdPASS;
 }
 /*----------------------------------------------------------------------------*/
+BaseType_t SerialLink_SendSummary_Async(uint16_t frame_id,
+                                        uint8_t risk_score,
+                                        uint8_t risk_level,
+                                        uint8_t movement_detected,
+                                        uint16_t time_since_last_movement_s,
+                                        uint8_t alert_active,
+                                        uint8_t alert_type,
+                                        uint8_t alert_severity,
+                                        uint16_t alert_duration_s,
+                                        uint8_t recommendation_code,
+                                        uint8_t recommendation_priority,
+                                        uint8_t sacrum_avg,
+                                        uint8_t sacrum_peak,
+                                        uint8_t heel_left_avg,
+                                        uint8_t heel_right_avg)
+{
+  SL_Msg m;
+
+  // === این پیام از نوع summary است ===
+  m.type = SL_MSG_TYPE_SUMMARY;
+
+  m.payload.summary.frame_id = frame_id;
+  m.payload.summary.risk_score = risk_score;
+  m.payload.summary.risk_level = risk_level;
+  m.payload.summary.movement_detected = movement_detected;
+  m.payload.summary.time_since_last_movement_s = time_since_last_movement_s;
+  m.payload.summary.alert_active = alert_active;
+  m.payload.summary.alert_type = alert_type;
+  m.payload.summary.alert_severity = alert_severity;
+  m.payload.summary.alert_duration_s = alert_duration_s;
+  m.payload.summary.recommendation_code = recommendation_code;
+  m.payload.summary.recommendation_priority = recommendation_priority;
+  m.payload.summary.sacrum_avg = sacrum_avg;
+  m.payload.summary.sacrum_peak = sacrum_peak;
+  m.payload.summary.heel_left_avg = heel_left_avg;
+  m.payload.summary.heel_right_avg = heel_right_avg;
+
+  if (qSerialTx == NULL) return pdFAIL;
+
+  if (xQueueSend(qSerialTx, &m, 0) != pdPASS) {
+    SL_Msg dummy;
+    xQueueReceive(qSerialTx, &dummy, 0);
+
+    if (xQueueSend(qSerialTx, &m, 0) != pdPASS) {
+      sl_tx_dropped++;
+      return pdFAIL;
+    }
+  }
+
+  return pdPASS;
+}
+/*----------------------------------------------------------------------------*/
+
+/*----------------------------------------------------------------------------*/
+
+/*----------------------------------------------------------------------------*/
+

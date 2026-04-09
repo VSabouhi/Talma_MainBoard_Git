@@ -13,6 +13,7 @@
 #define SL_MSG_TYPE_BED_SNAPSHOT   2U
 #define SL_MSG_TYPE_BED_STATUS     3U   //
 #define SL_MSG_TYPE_NODE_HEALTH    4U   // وضعیت همه نودهاپیام نقشه وضعیت کل تخت
+#define SL_MSG_TYPE_SUMMARY        5U   // summary packet for UI
 /*----------------------------------------------------------------------------*/
 // === node32 payload ===
 // payload مربوط به یک نود (32 سنسور)
@@ -43,6 +44,33 @@ typedef struct {
   uint16_t bed_cycle;   // cycle مرجع این گزارش
 } SL_NodeHealthPayload;
 
+
+// === summary payload ===
+// این ساختار همه متریک‌های لازم برای UI را داخل queue حمل می‌کند
+typedef struct {
+  uint16_t frame_id;
+
+  uint8_t risk_score;
+  uint8_t risk_level;
+
+  uint8_t movement_detected;
+  uint16_t time_since_last_movement_s;
+
+  uint8_t alert_active;
+  uint8_t alert_type;
+  uint8_t alert_severity;
+  uint16_t alert_duration_s;
+
+  uint8_t recommendation_code;
+  uint8_t recommendation_priority;
+
+  uint8_t sacrum_avg;
+  uint8_t sacrum_peak;
+  uint8_t heel_left_avg;
+  uint8_t heel_right_avg;
+} SL_SummaryPayload;
+
+
 // === generic serial link message ===
 // این پیام می‌تواند یکی از چند نوع خروجی UI باشد
 typedef struct {
@@ -54,6 +82,7 @@ typedef struct {
     SL_BedSnapshotPayload bed;     // snapshot کامل تخت
     SL_BedStatusPayload status;    // status کل تخت
     SL_NodeHealthPayload health;   // وضعیت همه نودها
+    SL_SummaryPayload summary;
   } payload;
 
 } SL_Msg;
@@ -67,6 +96,23 @@ BaseType_t SerialLink_SendBedStatus_Async(uint16_t bed_cycle);
 // === درخواست ارسال وضعیت همه نودها ===
 // داده واقعی node_state از node_state module خوانده می‌شود
 BaseType_t SerialLink_SendNodeHealth_Async(uint16_t bed_cycle);
+
+// === enqueue summary packet for UI ===
+BaseType_t SerialLink_SendSummary_Async(uint16_t frame_id,
+                                        uint8_t risk_score,
+                                        uint8_t risk_level,
+                                        uint8_t movement_detected,
+                                        uint16_t time_since_last_movement_s,
+                                        uint8_t alert_active,
+                                        uint8_t alert_type,
+                                        uint8_t alert_severity,
+                                        uint16_t alert_duration_s,
+                                        uint8_t recommendation_code,
+                                        uint8_t recommendation_priority,
+                                        uint8_t sacrum_avg,
+                                        uint8_t sacrum_peak,
+                                        uint8_t heel_left_avg,
+                                        uint8_t heel_right_avg);
 /*----------------------------------------------------------------------------*/
 extern QueueHandle_t qSerialTx;
 
