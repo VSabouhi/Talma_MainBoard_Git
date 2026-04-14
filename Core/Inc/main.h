@@ -280,7 +280,7 @@ void Error_Handler(void);
 // 0 = disable related debug prints
 
 #define DEBUG_CAN_RX_COMPLETE    0
-#define DEBUG_BED_SYNC           0
+#define DEBUG_BED_SYNC           1
 #define DEBUG_NODE_MONITOR       0
 #define DEBUG_SERIAL_TX_STATS    0
 
@@ -289,11 +289,18 @@ void Error_Handler(void);
 #define DEBUG_RISK               0
 #define DEBUG_ALERT              0
 #define DEBUG_RECOMMENDATION     0
-#define DEBUG_SUMMARY            0
+#define DEBUG_SUMMARY            1
 
 // === debug print throttle period ===
 // جلوگیری از شلوغ شدن UART debug
 #define DEBUG_PRINT_PERIOD_MS    1000U
+
+
+
+
+#define ENABLE_NODE1_TEST_CMD_TASK   0
+
+
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus

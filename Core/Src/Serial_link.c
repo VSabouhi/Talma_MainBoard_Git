@@ -147,13 +147,12 @@ void SerialLink_TxTask(void *argument)
 
         case SL_MSG_TYPE_BED_SNAPSHOT:
           // === ارسال snapshot کامل تخت ===
-          // داده‌های واقعی تخت از bed_model خوانده می‌شوند
-          UartPkt_SendBedSnapshot(m.payload.bed.bed_cycle, bed_value);
+          // باید از بافر پایدار send استفاده شود، نه از بافر زنده
+          UartPkt_SendBedSnapshot(m.payload.bed.bed_cycle, bed_value_send);
           break;
         case SL_MSG_TYPE_BED_STATUS:
-          // === ارسال نقشه وضعیت کل تخت ===
-          // داده واقعی از bed_model خوانده می‌شود
-          UartPkt_SendBedStatus(m.payload.status.bed_cycle, bed_status);
+          // === ارسال status پایدار تخت ===
+          UartPkt_SendBedStatus(m.payload.status.bed_cycle, bed_status_send);
           break;
         case SL_MSG_TYPE_NODE_HEALTH:
           // === ارسال وضعیت همه نودها ===

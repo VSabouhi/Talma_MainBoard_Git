@@ -2,6 +2,7 @@
 #include <string.h>   // برای memcpy
 #include "main.h"   // برای دسترسی به BED_REQUIRED_NODE_MASK و تنظیمات سیستم
 #include "app_config.h"
+#include "test_pattern.h"
 /*----------------------------------------------------------------------------*/
 
 /*----------------------------------------------------------------------------*/
@@ -97,6 +98,15 @@ void BedSync_OnNodeUpdated(uint8_t node)
   {
     // === یک snapshot کامل جدید از تخت تشکیل شده ===
     bed_cycle++;
+
+
+
+	#if TEST_PATTERN_ENABLE
+		// === inject artificial bed pattern for UI testing ===
+		// این بخش فقط برای تست UI است و داده واقعی تخت را override می‌کند
+		TestPattern_Generate(bed_value, bed_status, bed_valid);
+	#endif
+
 
     // === کپی snapshot پایدار برای UI ===
     // این کپی دقیقاً در لحظه‌ای انجام می‌شود که

@@ -54,6 +54,14 @@ typedef StaticTask_t osStaticThreadDef_t;
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+// === test feature switch ===
+// 0: disable periodic test command task
+// 1: enable periodic test command task
+//#define ENABLE_NODE1_TEST_CMD_TASK   0,
+
+// === minimum time gap between full-bed snapshots sent to UI ===
+// جلوگیری از ارسال بیش از حد snapshot کامل
+#define BED_SNAPSHOT_MIN_PERIOD_MS   200U
 
 /* USER CODE END PD */
 
@@ -77,14 +85,9 @@ static RecommendationResult_t g_recommendation;
 // جلوگیری از spam شدن UART
 static uint32_t last_debug_print = 0;
 
-// === minimum time gap between full-bed snapshots sent to UI ===
-// جلوگیری از ارسال بیش از حد snapshot کامل
-#define BED_SNAPSHOT_MIN_PERIOD_MS   200U
 
-// === test feature switch ===
-// 0: disable periodic test command task
-// 1: enable periodic test command task
-#define ENABLE_NODE1_TEST_CMD_TASK   0
+
+
 
 extern volatile uint32_t rx_dropped;
 
@@ -166,11 +169,11 @@ void MX_FREERTOS_Init(void) {
 	};
 
 	#if ENABLE_NODE1_TEST_CMD_TASK
-	const osThreadAttr_t node1CmdTask_attributes = {
-	  .name = "node1CmdTask",
-	  .stack_size = 512 * 4,
-	  .priority = (osPriority_t) osPriorityLow,
-	};
+		const osThreadAttr_t node1CmdTask_attributes = {
+		  .name = "node1CmdTask",
+		  .stack_size = 512 * 4,
+		  .priority = (osPriority_t) osPriorityLow,
+		};
 	#endif
 
 	// === attributes for node monitor task ===
@@ -478,14 +481,95 @@ void CanRxTask(void *argument)
 				         g_zone_result.zone[ZONE_SACRUM].avg);
 			#endif
 
-			#if DEBUG_SUMMARY
-				printf("SUMMARY: risk=%u mov=%u alert=%u rec=%u sac_avg=%u\r\n",
-					   g_risk_result.score,
-					   g_movement.detected,
-					   g_alert.active,
-					   g_recommendation.code,
-					   g_zone_result.zone[ZONE_SACRUM].avg);
+	#if DEBUG_SUMMARY
+			printf("UI FRAME: frame_id=%u\r\n", frame_id);
 			#endif
+
+			if (SerialLink_SendBedSnapshot_Async(frame_id) == pdPASS)
+			{
+			#if DEBUG_SUMMARY
+				printf("ENQ: BED_SNAPSHOT ok\r\n");
+			#endif
+
+				if (SerialLink_SendBedStatus_Async(frame_id) == pdPASS)
+				{
+			#if DEBUG_SUMMARY
+					printf("ENQ: BED_STATUS ok\r\n");
+			#endif
+
+			if (SerialLink_SendNodeHealth_Async(frame_id) == pdPASS)
+			{
+	#if DEBUG_SUMMARY
+				printf("ENQ: NODE_HEALTH ok\r\n");
+			#endif
+
+				// === compute time since last movement (seconds) ===
+				uint16_t time_since_last_movement_s = 0;
+
+				// اگر حرکت قبلاً ثبت شده
+				if (g_movement.last_movement_ms != 0U)
+				{
+				    uint32_t dt_ms = now - g_movement.last_movement_ms;
+
+				    // تبدیل به ثانیه
+				    time_since_last_movement_s = (uint16_t)(dt_ms / 1000U);
+				}
+				else
+				{
+				    // هنوز هیچ حرکتی ثبت نشده
+				    time_since_last_movement_s = 0xFFFF;
+				}
+
+
+						if (SerialLink_SendSummary_Async(
+								frame_id,
+								g_risk_result.score,
+								g_risk_result.level,
+								g_movement.detected,
+								time_since_last_movement_s,
+								g_alert.active,
+								g_alert.type,
+								g_alert.severity,
+								(uint16_t)g_alert.duration_s,
+								g_recommendation.code,
+								g_recommendation.priority,
+								g_zone_result.zone[ZONE_SACRUM].avg,
+								g_zone_result.zone[ZONE_SACRUM].peak,
+								g_zone_result.zone[ZONE_LEFT_HEEL].avg,
+								g_zone_result.zone[ZONE_RIGHT_HEEL].avg) == pdPASS)
+						{
+			#if DEBUG_SUMMARY
+							printf("ENQ: SUMMARY ok\r\n");
+			#endif
+							last_bed_snapshot_tx_ms = now;
+						}
+						else
+						{
+			#if DEBUG_SUMMARY
+							printf("ENQ: SUMMARY fail\r\n");
+			#endif
+						}
+					}
+					else
+					{
+			#if DEBUG_SUMMARY
+						printf("ENQ: NODE_HEALTH fail\r\n");
+			#endif
+					}
+				}
+				else
+				{
+			#if DEBUG_SUMMARY
+					printf("ENQ: BED_STATUS fail\r\n");
+			#endif
+				}
+			}
+			else
+			{
+			#if DEBUG_SUMMARY
+				printf("ENQ: BED_SNAPSHOT fail\r\n");
+	#endif
+}
           }
 
 
