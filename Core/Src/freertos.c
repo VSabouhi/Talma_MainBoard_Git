@@ -439,137 +439,133 @@ void CanRxTask(void *argument)
           {
               last_debug_print = now;
 
+              #if DEBUG_ZONE_ANALYSIS
+              printf("ZONE: sacrum avg=%u peak=%u valid=%u active=%u | heelL avg=%u | heelR avg=%u\r\n",
+                     g_zone_result.zone[ZONE_SACRUM].avg,
+                     g_zone_result.zone[ZONE_SACRUM].peak,
+                     g_zone_result.zone[ZONE_SACRUM].valid_cells,
+                     g_zone_result.zone[ZONE_SACRUM].active_cells,
+                     g_zone_result.zone[ZONE_LEFT_HEEL].avg,
+                     g_zone_result.zone[ZONE_RIGHT_HEEL].avg);
+              #endif
 
-				#if DEBUG_ZONE_ANALYSIS
-					printf("ZONE: sacrum avg=%u peak=%u valid=%u active=%u | heelL avg=%u | heelR avg=%u\r\n",
-						   g_zone_result.zone[ZONE_SACRUM].avg,
-						   g_zone_result.zone[ZONE_SACRUM].peak,
-						   g_zone_result.zone[ZONE_SACRUM].valid_cells,
-						   g_zone_result.zone[ZONE_SACRUM].active_cells,
-						   g_zone_result.zone[ZONE_LEFT_HEEL].avg,
-						   g_zone_result.zone[ZONE_RIGHT_HEEL].avg);
+              #if DEBUG_ALERT
+              printf("ALERT: active=%u type=%u sev=%u dur=%lu s\r\n",
+                     g_alert.active,
+                     g_alert.type,
+                     g_alert.severity,
+                     (unsigned long)g_alert.duration_s);
+              #endif
 
-				#endif
+              #if DEBUG_RISK
+              printf("RISK: score=%u level=%u\r\n",
+                     g_risk_result.score,
+                     g_risk_result.level);
+              #endif
 
-			  #if DEBUG_ALERT
-				  printf("ALERT: active=%u type=%u sev=%u dur=%lu s\r\n",
-						 g_alert.active,
-						 g_alert.type,
-						 g_alert.severity,
-						 (unsigned long)g_alert.duration_s);
-			  #endif
+              #if DEBUG_MOVEMENT
+              printf("MOV: energy=%u detected=%u\r\n",
+                     g_movement.energy,
+                     g_movement.detected);
+              #endif
 
-			  #if DEBUG_RISK
-				  printf("RISK: score=%u level=%u\r\n",
-						 g_risk_result.score,
-						 g_risk_result.level);
-			  #endif
+              #if DEBUG_RECOMMENDATION
+              printf("REC: code=%u priority=%u sac_avg=%u\r\n",
+                     g_recommendation.code,
+                     g_recommendation.priority,
+                     g_zone_result.zone[ZONE_SACRUM].avg);
+              #endif
+          }
 
-			  #if DEBUG_MOVEMENT
-				  printf("MOV: energy=%u detected=%u\r\n",
-						 g_movement.energy,
-						 g_movement.detected);
-			  #endif
+          if ((now - last_bed_snapshot_tx_ms) >= BED_SNAPSHOT_MIN_PERIOD_MS)
+          {
+              uint16_t time_since_last_movement_s = 0xFFFFU;
 
-			#if DEBUG_RECOMMENDATION
-				  printf("SUMMARY: frame=%u risk=%u mov=%u alert=%u rec=%u sac_avg=%u\r\n",
-				         frame_id,
-				         g_risk_result.score,
-				         g_movement.detected,
-				         g_alert.active,
-				         g_recommendation.code,
-				         g_zone_result.zone[ZONE_SACRUM].avg);
-			#endif
+              if (g_movement.last_movement_ms != 0U)
+              {
+                  uint32_t dt_ms = now - g_movement.last_movement_ms;
+                  uint32_t dt_s = dt_ms / 1000U;
 
-	#if DEBUG_SUMMARY
-			printf("UI FRAME: frame_id=%u\r\n", frame_id);
-			#endif
+                  if (dt_s > 0xFFFFU)
+                      dt_s = 0xFFFFU;
 
-			if (SerialLink_SendBedSnapshot_Async(frame_id) == pdPASS)
-			{
-			#if DEBUG_SUMMARY
-				printf("ENQ: BED_SNAPSHOT ok\r\n");
-			#endif
+                  time_since_last_movement_s = (uint16_t)dt_s;
+              }
 
-				if (SerialLink_SendBedStatus_Async(frame_id) == pdPASS)
-				{
-			#if DEBUG_SUMMARY
-					printf("ENQ: BED_STATUS ok\r\n");
-			#endif
+              frame_id = ++ui_frame_id;
 
-			if (SerialLink_SendNodeHealth_Async(frame_id) == pdPASS)
-			{
-	#if DEBUG_SUMMARY
-				printf("ENQ: NODE_HEALTH ok\r\n");
-			#endif
+              #if DEBUG_SUMMARY
+              printf("UI FRAME: frame_id=%u\r\n", frame_id);
+              #endif
 
-				// === compute time since last movement (seconds) ===
-				uint16_t time_since_last_movement_s = 0;
+              if (SerialLink_SendBedSnapshot_Async(frame_id) == pdPASS)
+              {
+                  #if DEBUG_SUMMARY
+                  printf("ENQ: BED_SNAPSHOT ok\r\n");
+                  #endif
 
-				// اگر حرکت قبلاً ثبت شده
-				if (g_movement.last_movement_ms != 0U)
-				{
-				    uint32_t dt_ms = now - g_movement.last_movement_ms;
+                  if (SerialLink_SendBedStatus_Async(frame_id) == pdPASS)
+                  {
+                      #if DEBUG_SUMMARY
+                      printf("ENQ: BED_STATUS ok\r\n");
+                      #endif
 
-				    // تبدیل به ثانیه
-				    time_since_last_movement_s = (uint16_t)(dt_ms / 1000U);
-				}
-				else
-				{
-				    // هنوز هیچ حرکتی ثبت نشده
-				    time_since_last_movement_s = 0xFFFF;
-				}
+                      if (SerialLink_SendNodeHealth_Async(frame_id) == pdPASS)
+                      {
+                          #if DEBUG_SUMMARY
+                          printf("ENQ: NODE_HEALTH ok\r\n");
+                          #endif
 
+                          if (SerialLink_SendSummary_Async(
+                                  frame_id,
+                                  g_risk_result.score,
+                                  g_risk_result.level,
+                                  g_movement.detected,
+                                  time_since_last_movement_s,
+                                  g_alert.active,
+                                  g_alert.type,
+                                  g_alert.severity,
+                                  (uint16_t)g_alert.duration_s,
+                                  g_recommendation.code,
+                                  g_recommendation.priority,
+                                  g_zone_result.zone[ZONE_SACRUM].avg,
+                                  g_zone_result.zone[ZONE_SACRUM].peak,
+                                  g_zone_result.zone[ZONE_LEFT_HEEL].avg,
+                                  g_zone_result.zone[ZONE_RIGHT_HEEL].avg) == pdPASS)
+                          {
+                              #if DEBUG_SUMMARY
+                              printf("ENQ: SUMMARY ok\r\n");
+                              #endif
 
-						if (SerialLink_SendSummary_Async(
-								frame_id,
-								g_risk_result.score,
-								g_risk_result.level,
-								g_movement.detected,
-								time_since_last_movement_s,
-								g_alert.active,
-								g_alert.type,
-								g_alert.severity,
-								(uint16_t)g_alert.duration_s,
-								g_recommendation.code,
-								g_recommendation.priority,
-								g_zone_result.zone[ZONE_SACRUM].avg,
-								g_zone_result.zone[ZONE_SACRUM].peak,
-								g_zone_result.zone[ZONE_LEFT_HEEL].avg,
-								g_zone_result.zone[ZONE_RIGHT_HEEL].avg) == pdPASS)
-						{
-			#if DEBUG_SUMMARY
-							printf("ENQ: SUMMARY ok\r\n");
-			#endif
-							last_bed_snapshot_tx_ms = now;
-						}
-						else
-						{
-			#if DEBUG_SUMMARY
-							printf("ENQ: SUMMARY fail\r\n");
-			#endif
-						}
-					}
-					else
-					{
-			#if DEBUG_SUMMARY
-						printf("ENQ: NODE_HEALTH fail\r\n");
-			#endif
-					}
-				}
-				else
-				{
-			#if DEBUG_SUMMARY
-					printf("ENQ: BED_STATUS fail\r\n");
-			#endif
-				}
-			}
-			else
-			{
-			#if DEBUG_SUMMARY
-				printf("ENQ: BED_SNAPSHOT fail\r\n");
-	#endif
-}
+                              last_bed_snapshot_tx_ms = now;
+                          }
+                          else
+                          {
+                              #if DEBUG_SUMMARY
+                              printf("ENQ: SUMMARY fail\r\n");
+                              #endif
+                          }
+                      }
+                      else
+                      {
+                          #if DEBUG_SUMMARY
+                          printf("ENQ: NODE_HEALTH fail\r\n");
+                          #endif
+                      }
+                  }
+                  else
+                  {
+                      #if DEBUG_SUMMARY
+                      printf("ENQ: BED_STATUS fail\r\n");
+                      #endif
+                  }
+              }
+              else
+              {
+                  #if DEBUG_SUMMARY
+                  printf("ENQ: BED_SNAPSHOT fail\r\n");
+                  #endif
+              }
           }
 
 

@@ -1,31 +1,54 @@
 #ifndef INC_TEST_PATTERN_H_
 #define INC_TEST_PATTERN_H_
-/*----------------------------------------------------------------------------*/
 
 #include <stdint.h>
 #include "app_config.h"
-/*----------------------------------------------------------------------------*/
 
-// === enable / disable synthetic test pattern injection ===
+// === master enable for synthetic bed patterns ===
+// 0 = use real sensor data
+// 1 = override bed snapshot with synthetic pattern
 #define TEST_PATTERN_ENABLE   1
 
-// === available test patterns ===
-#define TEST_PATTERN_LINEAR       1U
-#define TEST_PATTERN_ROW_GRAD     2U
-#define TEST_PATTERN_COL_GRAD     3U
-#define TEST_PATTERN_CENTER       4U
-#define TEST_PATTERN_HEELS        5U
-#define TEST_PATTERN_CHECKER      6U
-#define TEST_PATTERN_WAVE         7U
+// === available pattern modes ===
+typedef enum
+{
+  PATTERN_REAL_DATA = 0,
+  PATTERN_GRADIENT_DEBUG = 1,
+  PATTERN_CHECKERBOARD_DEBUG = 2,
+  PATTERN_BODY_ADULT_NORMAL = 3,
+  PATTERN_BODY_SHORT_LIGHT = 4,
+  PATTERN_BODY_TALL_HEAVY = 5,
+  PATTERN_BODY_SHIFT_LEFT = 6,
+  PATTERN_BODY_SHIFT_RIGHT = 7,
+  PATTERN_BODY_ONE_HEEL_DOMINANT = 8,
+  PATTERN_BODY_RESTLESS = 9,
+  PATTERN_BODY_SACRUM_DOMINANT = 10,
+  PATTERN_BODY_PARTIAL_FAULT = 11,
+  PATTERN_BODY_REALISTIC_SUPINE= 12
 
-// === current selected pattern ===
-#define TEST_PATTERN_MODE         TEST_PATTERN_CHECKER
-/*----------------------------------------------------------------------------*/
+} TestPatternMode_t;
+
+
+// === currently selected synthetic pattern ===
+#define TEST_PATTERN_MODE   PATTERN_BODY_REALISTIC_SUPINE
+
+
+// === synthetic body metadata ===
+// این اطلاعات برای debug و مقایسه با UI مفیدند
+typedef struct
+{
+  uint8_t body_top_row;
+  uint8_t body_bottom_row;
+  uint8_t center_col;
+} TestPatternInfo_t;
+
 
 // === generate one artificial bed snapshot ===
 void TestPattern_Generate(uint8_t bed_value[BED_ROWS][BED_COLS],
                           uint8_t bed_status[BED_ROWS][BED_COLS],
                           uint8_t bed_valid[BED_ROWS][BED_COLS]);
-/*----------------------------------------------------------------------------*/
+
+// === get metadata of current synthetic pattern ===
+const TestPatternInfo_t* TestPattern_GetInfo(void);
 
 #endif /* INC_TEST_PATTERN_H_ */
