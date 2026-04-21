@@ -285,6 +285,8 @@ void UartPkt_SendSummary(uint16_t frame_id,
   pkt[35] = PKT_CRC0;
   pkt[36] = PKT_CRC1;
 
+
+
   HAL_UART_Transmit(&huart4, pkt, 37, 100);
 }
 /*----------------------------------------------------------------------------*/

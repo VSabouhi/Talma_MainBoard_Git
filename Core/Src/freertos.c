@@ -89,8 +89,11 @@ static uint32_t g_sacrum_exposure_s = 0U;
 static uint32_t g_heels_exposure_s = 0U;
 static uint32_t g_shoulders_exposure_s = 0U;
 
-// === exposure threshold used by MCU summary ===
-static const uint8_t g_pressure_exposure_threshold = 32U;
+// === exposure thresholds per zone ===
+// این thresholdها برای تست trend/exposure روی zoneهای مختلف جدا تعریف شده‌اند
+static const uint8_t g_sacrum_exposure_threshold    = 20U;
+static const uint8_t g_heels_exposure_threshold     = 8U;
+static const uint8_t g_shoulders_exposure_threshold = 12U;
 
 // === last time exposure counters were updated ===
 static uint32_t g_last_exposure_update_ms = 0U;
@@ -460,6 +463,7 @@ void CanRxTask(void *argument)
           // === derived summary fields for analytics/trend ===
           uint16_t uptime_s = (uint16_t)(now / 1000U);
 
+
           uint8_t shoulders_avg = (uint8_t)(
               ((uint16_t)g_zone_result.zone[ZONE_LEFT_SHOULDER].avg +
                (uint16_t)g_zone_result.zone[ZONE_RIGHT_SHOULDER].avg) / 2U);
@@ -554,25 +558,25 @@ void CanRxTask(void *argument)
 
               frame_id = ++ui_frame_id;
 
-              #if DEBUG_SUMMARY
+			 #if DEBUG_SUMMARY_ENQUEUE
               printf("UI FRAME: frame_id=%u\r\n", frame_id);
               #endif
 
               if (SerialLink_SendBedSnapshot_Async(frame_id) == pdPASS)
               {
-                  #if DEBUG_SUMMARY
+                  #if DEBUG_SUMMARY_ENQUEUE
                   printf("ENQ: BED_SNAPSHOT ok\r\n");
                   #endif
 
                   if (SerialLink_SendBedStatus_Async(frame_id) == pdPASS)
                   {
-                      #if DEBUG_SUMMARY
+                      #if DEBUG_SUMMARY_ENQUEUE
                       printf("ENQ: BED_STATUS ok\r\n");
                       #endif
 
                       if (SerialLink_SendNodeHealth_Async(frame_id) == pdPASS)
                       {
-                          #if DEBUG_SUMMARY
+                          #if DEBUG_SUMMARY_ENQUEUE
                           printf("ENQ: NODE_HEALTH ok\r\n");
                           #endif
 
@@ -595,14 +599,14 @@ void CanRxTask(void *argument)
                                   g_zone_result.zone[ZONE_RIGHT_HEEL].avg,
                                   shoulders_avg,
                                   shoulders_peak,
-							        g_pressure_exposure_threshold,
+								    g_sacrum_exposure_threshold,
 							        (uint16_t)g_sacrum_exposure_s,
 							        (uint16_t)g_heels_exposure_s,
 							        (uint16_t)g_shoulders_exposure_s,
 							        zones_valid_mask,
 							        summary_flags) == pdPASS)
                           {
-                              #if DEBUG_SUMMARY
+                              #if DEBUG_SUMMARY_ENQUEUE
                               printf("ENQ: SUMMARY ok\r\n");
                               #endif
 
@@ -613,28 +617,28 @@ void CanRxTask(void *argument)
                           }
                           else
                           {
-                              #if DEBUG_SUMMARY
+                              #if DEBUG_SUMMARY_ENQUEUE
                               printf("ENQ: SUMMARY fail\r\n");
                               #endif
                           }
                       }
                       else
                       {
-                          #if DEBUG_SUMMARY
+                          #if DEBUG_SUMMARY_ENQUEUE
                           printf("ENQ: NODE_HEALTH fail\r\n");
                           #endif
                       }
                   }
                   else
                   {
-                      #if DEBUG_SUMMARY
+                      #if DEBUG_SUMMARY_ENQUEUE
                       printf("ENQ: BED_STATUS fail\r\n");
                       #endif
                   }
               }
               else
               {
-                  #if DEBUG_SUMMARY
+                  #if DEBUG_SUMMARY_ENQUEUE
                   printf("ENQ: BED_SNAPSHOT fail\r\n");
                   #endif
               }
@@ -793,17 +797,42 @@ static void UpdateExposureCounters(const ZoneAnalysisResult_t *zone_res, uint32_
   uint8_t shoulders_left_avg = zone_res->zone[ZONE_LEFT_SHOULDER].avg;
   uint8_t shoulders_right_avg = zone_res->zone[ZONE_RIGHT_SHOULDER].avg;
 
-  uint8_t heels_avg = (uint8_t)(((uint16_t)heel_left_avg + (uint16_t)heel_right_avg) / 2U);
-  uint8_t shoulders_avg = (uint8_t)(((uint16_t)shoulders_left_avg + (uint16_t)shoulders_right_avg) / 2U);
+  // === FIX: use max instead of average for exposure detection ===
+  // دلیل: avg خیلی low میشه و exposure هیچوقت trigger نمیشه
 
-  if (sacrum_avg >= g_pressure_exposure_threshold)
+  uint8_t heels_metric =
+      (heel_left_avg > heel_right_avg) ? heel_left_avg : heel_right_avg;
+
+  uint8_t shoulders_metric =
+      (shoulders_left_avg > shoulders_right_avg) ? shoulders_left_avg : shoulders_right_avg;
+
+
+
+  // === exposure accumulation per zone ===
+  // هر zone threshold مخصوص خودش را دارد
+  if (sacrum_avg >= g_sacrum_exposure_threshold)
     g_sacrum_exposure_s += dt_s;
 
-  if (heels_avg >= g_pressure_exposure_threshold)
+  if (heels_metric >= g_heels_exposure_threshold)
     g_heels_exposure_s += dt_s;
 
-  if (shoulders_avg >= g_pressure_exposure_threshold)
+  if (shoulders_metric >= g_shoulders_exposure_threshold)
     g_shoulders_exposure_s += dt_s;
+
+ /* printf("DBG EXP SRC: sac=%u heelL=%u heelR=%u shL=%u shR=%u thr=%u\n",
+         (unsigned int)zone_res->zone[ZONE_SACRUM].avg,
+         (unsigned int)zone_res->zone[ZONE_LEFT_HEEL].avg,
+         (unsigned int)zone_res->zone[ZONE_RIGHT_HEEL].avg,
+         (unsigned int)zone_res->zone[ZONE_LEFT_SHOULDER].avg,
+         (unsigned int)zone_res->zone[ZONE_RIGHT_SHOULDER].avg,
+         (unsigned int)g_sacrum_exposure_threshold);*/
+
+  // === DEBUG: verify exposure counters are increasing ===
+  // این print برای اینه که ببینیم counterها واقعا در MCU افزایش پیدا میکنن یا نه
+  printf("DBG EXP CNT: sac=%lu heel=%lu sh=%lu\r\n",
+         (unsigned long)g_sacrum_exposure_s,
+         (unsigned long)g_heels_exposure_s,
+         (unsigned long)g_shoulders_exposure_s);
 }
 /*--------------------------------------------------------------------------------*/
 

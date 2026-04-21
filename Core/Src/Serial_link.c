@@ -164,30 +164,30 @@ void SerialLink_TxTask(void *argument)
         case SL_MSG_TYPE_SUMMARY:
           // === ارسال summary packet برای UI ===
         	UartPkt_SendSummary(
-        	      m.payload.summary.frame_id,
-        	      m.payload.summary.uptime_s,
-        	      m.payload.summary.risk_score,
-        	      m.payload.summary.risk_level,
-        	      m.payload.summary.movement_detected,
-        	      m.payload.summary.time_since_last_movement_s,
-        	      m.payload.summary.alert_active,
-        	      m.payload.summary.alert_type,
-        	      m.payload.summary.alert_severity,
-        	      m.payload.summary.alert_duration_s,
-        	      m.payload.summary.recommendation_code,
-        	      m.payload.summary.recommendation_priority,
-        	      m.payload.summary.sacrum_avg,
-        	      m.payload.summary.sacrum_peak,
-        	      m.payload.summary.heel_left_avg,
-        	      m.payload.summary.heel_right_avg,
-        	      m.payload.summary.shoulders_avg,
-        	      m.payload.summary.shoulders_peak,
-			      m.payload.summary.pressure_exposure_threshold,
-			      m.payload.summary.sacrum_exposure_s,
-			      m.payload.summary.heels_exposure_s,
-			      m.payload.summary.shoulders_exposure_s,
-			      m.payload.summary.zones_valid_mask,
-			      m.payload.summary.summary_flags);
+				  m.payload.summary.frame_id,
+				  m.payload.summary.uptime_s,
+				  m.payload.summary.risk_score,
+				  m.payload.summary.risk_level,
+				  m.payload.summary.movement_detected,
+				  m.payload.summary.time_since_last_movement_s,
+				  m.payload.summary.alert_active,
+				  m.payload.summary.alert_type,
+				  m.payload.summary.alert_severity,
+				  m.payload.summary.alert_duration_s,
+				  m.payload.summary.recommendation_code,
+				  m.payload.summary.recommendation_priority,
+				  m.payload.summary.sacrum_avg,
+				  m.payload.summary.sacrum_peak,
+				  m.payload.summary.heel_left_avg,
+				  m.payload.summary.heel_right_avg,
+				  m.payload.summary.shoulders_avg,
+				  m.payload.summary.shoulders_peak,
+				  m.payload.summary.pressure_exposure_threshold,
+				  m.payload.summary.sacrum_exposure_s,
+				  m.payload.summary.heels_exposure_s,
+				  m.payload.summary.shoulders_exposure_s,
+				  m.payload.summary.zones_valid_mask,
+				  m.payload.summary.summary_flags);
 
           break;
 
@@ -258,6 +258,7 @@ BaseType_t SerialLink_SendSummary_Async(uint16_t frame_id,
   m.type = SL_MSG_TYPE_SUMMARY;
 
   m.payload.summary.frame_id = frame_id;
+  m.payload.summary.uptime_s = uptime_s;
   m.payload.summary.risk_score = risk_score;
   m.payload.summary.risk_level = risk_level;
   m.payload.summary.movement_detected = movement_detected;

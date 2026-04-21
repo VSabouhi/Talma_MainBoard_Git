@@ -218,7 +218,9 @@ void Error_Handler(void);
 #define DEBUG_ALERT              0
 #define DEBUG_RECOMMENDATION     0
 #define DEBUG_SUMMARY            0
-
+// === DEBUG CONTROL FLAGS ===
+// فعال/غیرفعال کردن لاگ‌های enqueue برای UART
+#define DEBUG_SUMMARY_ENQUEUE    0
 // === debug print throttle period ===
 // جلوگیری از شلوغ شدن UART debug
 #define DEBUG_PRINT_PERIOD_MS    1000U
