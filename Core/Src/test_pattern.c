@@ -1,4 +1,5 @@
 #include "test_pattern.h"
+#include "stm32f7xx_hal.h"
 /*----------------------------------------------------------*/
 /*----------------------------------------------------------*/
 /*----------------------------------------------------------*/
@@ -6,6 +7,23 @@
 // === synthetic pattern metadata ===
 static TestPatternInfo_t g_pattern_info;
 
+/*----------------------------------------------------------*/
+/*----------------------------------------------------------*/
+/*----------------------------------------------------------*/
+
+static void TestPattern_FillRealisticBody(uint8_t bed_value[BED_ROWS][BED_COLS],
+                                          uint8_t bed_status[BED_ROWS][BED_COLS],
+                                          uint8_t bed_valid[BED_ROWS][BED_COLS],
+                                          uint8_t center,
+                                          int sacrum_boost,
+                                          int heel_left_boost,
+                                          int heel_right_boost,
+                                          int body_scale_bias);
+
+
+static void TestPattern_FillTurningCycleSmooth(uint8_t bed_value[BED_ROWS][BED_COLS],
+                                               uint8_t bed_status[BED_ROWS][BED_COLS],
+                                               uint8_t bed_valid[BED_ROWS][BED_COLS]);
 /*----------------------------------------------------------*/
 
 // === helper: fill whole bed with default "no body contact" values ===
@@ -75,108 +93,25 @@ static void TestPattern_FillGradient(uint8_t bed_value[BED_ROWS][BED_COLS],
 
 /*----------------------------------------------------------*/
 
-// === helper: return half-width of body at a given row for adult pattern ===
-static uint8_t TestPattern_AdultHalfWidth(int r)
+static void TestPattern_Blend(uint8_t out[BED_ROWS][BED_COLS],
+                              uint8_t a[BED_ROWS][BED_COLS],
+                              uint8_t b[BED_ROWS][BED_COLS],
+                              uint8_t alpha) // 0..255
 {
-  if (r < 2)   return 0U; // above body
-
-  // head
-  if (r == 2)  return 1U;
-  if (r == 3)  return 2U;
-  if (r == 4)  return 2U;
-  if (r == 5)  return 1U;
-
-  // shoulders
-  if (r <= 9)  return 4U;
-
-  // torso
-  if (r <= 15) return 3U;
-
-  // hip / sacrum
-  if (r <= 21) return 4U;
-
-  // legs
-  if (r <= 27) return 2U;
-
-  // heels / feet region
-  if (r <= 29) return 1U;
-
-  return 0U;
-}
-
-/*----------------------------------------------------------*/
-/*------------- TestPattern_FillAdultAtCenter --------------*/
-/*----------------------------------------------------------*/
-
-static void TestPattern_FillAdultAtCenter(uint8_t bed_value[BED_ROWS][BED_COLS],
-                                          uint8_t bed_status[BED_ROWS][BED_COLS],
-                                          uint8_t bed_valid[BED_ROWS][BED_COLS],
-                                          uint8_t center)
-{
-  TestPattern_ClearBed(bed_value, bed_status, bed_valid);
-
-  const uint8_t body_top = 2U;
-  const uint8_t body_bottom = 31U;
-
-  g_pattern_info.body_top_row = body_top;
-  g_pattern_info.body_bottom_row = body_bottom;
-  g_pattern_info.center_col = center;
-
-  for (int r = body_top; r <= body_bottom; r++)
+  for (int r = 0; r < BED_ROWS; r++)
   {
-    uint8_t half_w = TestPattern_AdultHalfWidth(r);
-
-    if (half_w == 0U)
-      continue;
-
-    int c0 = (int)center - (int)half_w;
-    int c1 = (int)center + (int)half_w;
-
-    for (int c = c0; c <= c1; c++)
+    for (int c = 0; c < BED_COLS; c++)
     {
-      if (c < 0 || c >= BED_COLS)
-        continue;
+      uint16_t va = a[r][c];
+      uint16_t vb = b[r][c];
 
-      uint8_t val = 18U;
-
-      // head
-      if (r >= 2 && r <= 5)
-        val = 20U;
-
-      // shoulders
-      if (r >= 6 && r <= 9)
-        val = 34U;
-
-      // torso
-      if (r >= 10 && r <= 14)
-        val = 24U;
-
-      // sacrum / hip hotspot
-      if (r >= 15 && r <= 20 && c >= ((int)center - 2) && c <= ((int)center + 2))
-        val = 56U;
-
-      // upper legs
-      if (r >= 21 && r <= 24 && c >= ((int)center - 1) && c <= ((int)center + 1))
-        val = 30U;
-
-      // knees / transition
-      if (r >= 25 && r <= 26 && c >= ((int)center - 1) && c <= ((int)center + 1))
-        val = 24U;
-
-      // lower legs
-      if (r >= 27 && r <= 29 && c >= ((int)center - 1) && c <= ((int)center + 1))
-        val = 18U;
-
-      // feet / heel region
-      if (r >= 30 && r <= 31 && c >= ((int)center - 1) && c <= ((int)center + 1))
-        val = 42U;
-
-      bed_value[r][c] = val;
-      bed_status[r][c] = 0U;
-      bed_valid[r][c] = 1U;
+      out[r][c] = (uint8_t)((va * (255 - alpha) + vb * alpha) / 255);
     }
   }
 }
+/*----------------------------------------------------------*/
+/*------------- TestPattern_FillAdultAtCenter --------------*/
+/*----------------------------------------------------------*/
 
 
 /*----------------------------------------------------------*/
@@ -187,7 +122,12 @@ static void TestPattern_FillAdultNormal(uint8_t bed_value[BED_ROWS][BED_COLS],
                                         uint8_t bed_status[BED_ROWS][BED_COLS],
                                         uint8_t bed_valid[BED_ROWS][BED_COLS])
 {
-	  TestPattern_FillAdultAtCenter(bed_value, bed_status, bed_valid, 8U);
+	TestPattern_FillRealisticBody(bed_value, bed_status, bed_valid,
+	                              8,   // center
+	                              0,   // sacrum
+	                              0,   // heel L
+	                              0,   // heel R
+	                              0);  // scale
 }
 
 /*----------------------------------------------------------*/
@@ -195,73 +135,11 @@ static void TestPattern_FillAdultNormal(uint8_t bed_value[BED_ROWS][BED_COLS],
 /*----------------------------------------------------------*/
 
 
-static void TestPattern_FillShortLight(uint8_t bed_value[BED_ROWS][BED_COLS],
+static void TestPattern_FillShiftRight(uint8_t bed_value[BED_ROWS][BED_COLS],
                                        uint8_t bed_status[BED_ROWS][BED_COLS],
                                        uint8_t bed_valid[BED_ROWS][BED_COLS])
 {
-  TestPattern_ClearBed(bed_value, bed_status, bed_valid);
-
-  const uint8_t body_top = 4U;
-  const uint8_t body_bottom = 26U;
-  const uint8_t center = 8U;
-
-  g_pattern_info.body_top_row = body_top;
-  g_pattern_info.body_bottom_row = body_bottom;
-  g_pattern_info.center_col = center;
-
-  for (int r = body_top; r <= body_bottom; r++)
-  {
-    uint8_t half_w = TestPattern_AdultHalfWidth(r);
-
-    if (half_w > 0)
-        half_w -= 1;   // 👈 کل بدن باریک‌تر
-
-    if (half_w == 0U)
-      continue;
-
-    int c0 = center - half_w;
-    int c1 = center + half_w;
-
-    for (int c = c0; c <= c1; c++)
-    {
-      if (c < 0 || c >= BED_COLS)
-        continue;
-
-      uint8_t val = 14U;  // 👈 کل فشار کمتر
-
-      // head
-      if (r >= 4 && r <= 6)
-        val = 16U;
-
-      // shoulders
-      if (r >= 7 && r <= 10)
-        val = 26U;
-
-      // torso
-      if (r >= 11 && r <= 15)
-        val = 20U;
-
-      // sacrum (کم‌تر از adult)
-      if (r >= 16 && r <= 19 && c >= 7 && c <= 9)
-        val = 36U;
-
-      // upper legs
-      if (r >= 20 && r <= 22 && c >= 7 && c <= 9)
-        val = 22U;
-
-      // lower legs
-      if (r >= 23 && r <= 25 && c >= 7 && c <= 9)
-        val = 16U;
-
-      // heel (خیلی ضعیف‌تر)
-      if (r >= 25 && r <= 26 && c >= 7 && c <= 9)
-        val = 20U;
-
-      bed_value[r][c] = val;
-      bed_status[r][c] = 0U;
-      bed_valid[r][c] = 1U;
-    }
-  }
+  TestPattern_FillRealisticBody(bed_value, bed_status, bed_valid, 10U, 0, 0, 0, 0);
 }
 
 
@@ -272,149 +150,24 @@ static void TestPattern_FillShiftLeft(uint8_t bed_value[BED_ROWS][BED_COLS],
                                       uint8_t bed_status[BED_ROWS][BED_COLS],
                                       uint8_t bed_valid[BED_ROWS][BED_COLS])
 {
-  TestPattern_ClearBed(bed_value, bed_status, bed_valid);
-
-  const uint8_t body_top = 2U;
-  const uint8_t body_bottom = 31U;
-  const uint8_t center = 6U;   // === بدن به چپ شیفت داده شده ===
-
-  g_pattern_info.body_top_row = body_top;
-  g_pattern_info.body_bottom_row = body_bottom;
-  g_pattern_info.center_col = center;
-
-  for (int r = body_top; r <= body_bottom; r++)
-  {
-    uint8_t half_w = TestPattern_AdultHalfWidth(r);
-
-    if (half_w == 0U)
-      continue;
-
-    int c0 = (int)center - (int)half_w;
-    int c1 = (int)center + (int)half_w;
-
-    for (int c = c0; c <= c1; c++)
-    {
-      if (c < 0 || c >= BED_COLS)
-        continue;
-
-      // === default body contact ===
-      uint8_t val = 18U;
-
-      // head
-      if (r >= 2 && r <= 5)
-        val = 20U;
-
-      // shoulders
-      if (r >= 6 && r <= 9)
-        val = 34U;
-
-      // torso
-      if (r >= 10 && r <= 14)
-        val = 24U;
-
-      // sacrum / hip hotspot
-      if (r >= 15 && r <= 20 && c >= (center - 2) && c <= (center + 2))
-        val = 56U;
-
-      // upper legs
-      if (r >= 21 && r <= 24 && c >= (center - 1) && c <= (center + 1))
-        val = 30U;
-
-      // knees / transition
-      if (r >= 25 && r <= 26 && c >= (center - 1) && c <= (center + 1))
-        val = 24U;
-
-      // lower legs
-      if (r >= 27 && r <= 29 && c >= (center - 1) && c <= (center + 1))
-        val = 18U;
-
-      // feet / heel region
-      if (r >= 30 && r <= 31 && c >= (center - 1) && c <= (center + 1))
-        val = 42U;
-
-      bed_value[r][c] = val;
-      bed_status[r][c] = 0U;
-      bed_valid[r][c] = 1U;
-    }
-  }
+  TestPattern_FillRealisticBody(bed_value, bed_status, bed_valid, 6U, 0, 0, 0, 0);
 }
-
-
 
 /*----------------------------------------------------------*/
 /*--------------- PATTERN_BODY_SHIFT_RIGHT -----------------*/
 /*----------------------------------------------------------*/
 
-static void TestPattern_FillShiftRight(uint8_t bed_value[BED_ROWS][BED_COLS],
-                                       uint8_t bed_status[BED_ROWS][BED_COLS],
-                                       uint8_t bed_valid[BED_ROWS][BED_COLS])
+static void TestPattern_FillShortLight(uint8_t bed_value[BED_ROWS][BED_COLS],
+        								uint8_t bed_status[BED_ROWS][BED_COLS],
+										uint8_t bed_valid[BED_ROWS][BED_COLS])
 {
-  TestPattern_ClearBed(bed_value, bed_status, bed_valid);
-
-  const uint8_t body_top = 2U;
-  const uint8_t body_bottom = 31U;
-  const uint8_t center = 10U;   // === بدن به راست شیفت داده شده ===
-
-  g_pattern_info.body_top_row = body_top;
-  g_pattern_info.body_bottom_row = body_bottom;
-  g_pattern_info.center_col = center;
-
-  for (int r = body_top; r <= body_bottom; r++)
-  {
-    uint8_t half_w = TestPattern_AdultHalfWidth(r);
-
-    if (half_w == 0U)
-      continue;
-
-    int c0 = (int)center - (int)half_w;
-    int c1 = (int)center + (int)half_w;
-
-    for (int c = c0; c <= c1; c++)
-    {
-      if (c < 0 || c >= BED_COLS)
-        continue;
-
-      uint8_t val = 18U;
-
-      // head
-      if (r >= 2 && r <= 5)
-        val = 20U;
-
-      // shoulders
-      if (r >= 6 && r <= 9)
-        val = 34U;
-
-      // torso
-      if (r >= 10 && r <= 14)
-        val = 24U;
-
-      // sacrum / hip hotspot
-      if (r >= 15 && r <= 20 && c >= (center - 2) && c <= (center + 2))
-        val = 56U;
-
-      // upper legs
-      if (r >= 21 && r <= 24 && c >= (center - 1) && c <= (center + 1))
-        val = 30U;
-
-      // knees / transition
-      if (r >= 25 && r <= 26 && c >= (center - 1) && c <= (center + 1))
-        val = 24U;
-
-      // lower legs
-      if (r >= 27 && r <= 29 && c >= (center - 1) && c <= (center + 1))
-        val = 18U;
-
-      // feet / heel region
-      if (r >= 30 && r <= 31 && c >= (center - 1) && c <= (center + 1))
-        val = 42U;
-
-      bed_value[r][c] = val;
-      bed_status[r][c] = 0U;
-      bed_valid[r][c] = 1U;
-    }
-  }
+  TestPattern_FillRealisticBody(bed_value, bed_status, bed_valid,
+                                8U,
+                                -5,   // sacrum کمتر ولی نه خیلی
+                                -5,
+                                -5,
+                                -12); // 👈 فقط scale پایین
 }
-
 /*----------------------------------------------------------*/
 /*------------ PATTERN_BODY_ONE_HEEL_DOMINANT --------------*/
 /*----------------------------------------------------------*/
@@ -423,35 +176,12 @@ static void TestPattern_FillOneHeelDominant(uint8_t bed_value[BED_ROWS][BED_COLS
                                             uint8_t bed_status[BED_ROWS][BED_COLS],
                                             uint8_t bed_valid[BED_ROWS][BED_COLS])
 {
-  // === اول الگوی پایه adult normal را بساز ===
-  TestPattern_FillAdultNormal(bed_value, bed_status, bed_valid);
-
-  // === حالا فقط یک heel را dominant کن ===
-  // اینجا heel راست را قوی‌تر می‌کنیم
-  // اگر خواستی بعداً نسخه left هم بسازی، فقط ستون‌ها را mirror کن
-
-  for (int r = 30; r <= 31; r++)
-  {
-    for (int c = 7; c <= 9; c++)
-    {
-      // baseline heel region از adult_normal حفظ می‌شود
-      // اما heel dominant قوی‌تر می‌شود
-      bed_value[r][c] = 22U;
-    }
-  }
-
-  // === dominant right heel hotspot ===
-  // چون UI فعلی تو bigger value = hotter می‌بیند،
-  // heel dominant را با مقدار بالاتر مشخص می‌کنیم
-  if (30 < BED_ROWS && 9 < BED_COLS) bed_value[30][9] = 58U;
-  if (31 < BED_ROWS && 9 < BED_COLS) bed_value[31][9] = 58U;
-
-  if (30 < BED_ROWS && 8 < BED_COLS) bed_value[30][8] = 46U;
-  if (31 < BED_ROWS && 8 < BED_COLS) bed_value[31][8] = 46U;
-
-  // === heel مقابل ضعیف‌تر بماند ===
-  if (30 < BED_ROWS && 7 < BED_COLS) bed_value[30][7] = 20U;
-  if (31 < BED_ROWS && 7 < BED_COLS) bed_value[31][7] = 20U;
+  TestPattern_FillRealisticBody(bed_value, bed_status, bed_valid,
+                                8U,   // center
+                                0,    // sacrum boost
+                                0,    // left heel
+                                20,   // 👈 right heel dominant
+                                0);   // body scale
 }
 
 /*----------------------------------------------------------*/
@@ -462,58 +192,13 @@ static void TestPattern_FillSacrumDominant(uint8_t bed_value[BED_ROWS][BED_COLS]
                                            uint8_t bed_status[BED_ROWS][BED_COLS],
                                            uint8_t bed_valid[BED_ROWS][BED_COLS])
 {
-  // === اول الگوی پایه adult normal را بساز ===
-  TestPattern_FillAdultNormal(bed_value, bed_status, bed_valid);
-
-  // === سپس sacrum را dominant کن ===
-  // چون UI فعلی value بزرگ‌تر را داغ‌تر می‌بیند،
-  // hotspot مرکزی را قوی‌تر می‌کنیم
-
-  // central sacrum hotspot
-  for (int r = 15; r <= 20; r++)
-  {
-    for (int c = 6; c <= 10; c++)
-    {
-      bed_value[r][c] = 60U;
-    }
-  }
-
-  // کمی falloff اطراف ساکروم برای طبیعی‌تر شدن
-  for (int r = 14; r <= 21; r++)
-  {
-    for (int c = 5; c <= 11; c++)
-    {
-      if (r < 0 || r >= BED_ROWS || c < 0 || c >= BED_COLS)
-        continue;
-
-      // اگر هنوز داخل hotspot اصلی نیست، اطرافش را متوسط کن
-      if (!((r >= 15 && r <= 20) && (c >= 6 && c <= 10)))
-      {
-        if (bed_value[r][c] < 44U)
-          bed_value[r][c] = 44U;
-      }
-    }
-  }
-
-  // heelها را عمداً ضعیف نگه دار
-  for (int r = 30; r <= 31; r++)
-  {
-    for (int c = 7; c <= 9; c++)
-    {
-      bed_value[r][c] = 16U;
-    }
-  }
-
-  // upper legs هم کمتر از sacrum بمانند
-  for (int r = 21; r <= 24; r++)
-  {
-    for (int c = 7; c <= 9; c++)
-    {
-      bed_value[r][c] = 22U;
-    }
-  }
+  TestPattern_FillRealisticBody(bed_value, bed_status, bed_valid,
+                                8U,
+                                15,
+                                -5,
+                                -5,
+                                0);
 }
-
 /*----------------------------------------------------------*/
 /*-------------- PATTERN_BODY_PARTIAL_FAULT ----------------*/
 /*----------------------------------------------------------*/
@@ -521,40 +206,30 @@ static void TestPattern_FillPartialFault(uint8_t bed_value[BED_ROWS][BED_COLS],
                                          uint8_t bed_status[BED_ROWS][BED_COLS],
                                          uint8_t bed_valid[BED_ROWS][BED_COLS])
 {
-  // === اول الگوی پایه adult normal را بساز ===
-  TestPattern_FillAdultNormal(bed_value, bed_status, bed_valid);
+  TestPattern_FillRealisticBody(bed_value, bed_status, bed_valid,
+                                8U, 0, 0, 0, 0);
 
-  // === حالا یک fault موضعی تزریق کن ===
-  // اینجا heel راست را degraded می‌کنیم
-
-  for (int r = 30; r <= 31; r++)
+  for (int r = 29; r <= 30; r++)
   {
     for (int c = 8; c <= 9; c++)
     {
       if (r < BED_ROWS && c < BED_COLS)
       {
-        // value را نگه می‌داریم یا کم‌اثر می‌کنیم
         bed_value[r][c] = 8U;
-
-        // status = ERROR
         bed_status[r][c] = 2U;
-
-        // invalid برای پردازش
         bed_valid[r][c] = 0U;
       }
     }
   }
 
-  // === یک warning band کوچک هم بالاتر اضافه می‌کنیم ===
-  // برای اینکه UI فقط یک fault binary نبیند
-  for (int r = 28; r <= 29; r++)
+  for (int r = 27; r <= 28; r++)
   {
     for (int c = 8; c <= 9; c++)
     {
       if (r < BED_ROWS && c < BED_COLS)
       {
-        bed_status[r][c] = 1U;   // WARNING
-        bed_valid[r][c] = 1U;    // هنوز usable
+        bed_status[r][c] = 1U;
+        bed_valid[r][c] = 1U;
       }
     }
   }
@@ -571,13 +246,7 @@ static void TestPattern_FillRestless(uint8_t bed_value[BED_ROWS][BED_COLS],
   static uint8_t phase = 0U;
   phase++;
 
-  // === movement cycle ===
-  // 0..7   -> center 7
-  // 8..15  -> center 8
-  // 16..23 -> center 9
-  // 24..31 -> center 8
   uint8_t center;
-
   switch ((phase / 8U) & 0x03U)
   {
     case 0:  center = 7U; break;
@@ -586,7 +255,12 @@ static void TestPattern_FillRestless(uint8_t bed_value[BED_ROWS][BED_COLS],
     default: center = 8U; break;
   }
 
-  TestPattern_FillAdultAtCenter(bed_value, bed_status, bed_valid, center);
+  TestPattern_FillRealisticBody(bed_value, bed_status, bed_valid,
+                                center,
+                                0,
+                                0,
+                                0,
+                                0);
 }
 
 /*----------------------------------------------------------*/
@@ -637,15 +311,51 @@ static void TestPattern_AddBlob(uint8_t bed_value[BED_ROWS][BED_COLS],
 }
 
 
-static void TestPattern_FillRealisticSupine(uint8_t bed_value[BED_ROWS][BED_COLS],
-                                            uint8_t bed_status[BED_ROWS][BED_COLS],
-                                            uint8_t bed_valid[BED_ROWS][BED_COLS])
+/*----------------------------------------------------------*/
+static void TestPattern_AddSideChain(uint8_t bed_value[BED_ROWS][BED_COLS],
+                                     int base_x,
+                                     int mirror,
+                                     int body_scale_bias)
+{
+  int s = mirror ? -1 : 1;
+
+  // head
+  TestPattern_AddBlob(bed_value, base_x + s * 1, 4, 2, 2, 18 + body_scale_bias / 4);
+
+  // neck / shoulder bridge
+  TestPattern_AddBlob(bed_value, base_x + s * 2, 6, 2, 2, 12 + body_scale_bias / 5);
+
+  // shoulder
+  TestPattern_AddBlob(bed_value, base_x + s * 3, 9, 3, 2, 32 + body_scale_bias / 4);
+
+  // upper thorax
+  TestPattern_AddBlob(bed_value, base_x + s * 3, 12, 3, 3, 24 + body_scale_bias / 4);
+
+  // waist trail
+  TestPattern_AddBlob(bed_value, base_x + s * 2, 15, 2, 3, 16 + body_scale_bias / 5);
+
+  // pelvis / hip hotspot
+  TestPattern_AddBlob(bed_value, base_x + s * 2, 18, 3, 3, 44 + body_scale_bias / 3);
+  TestPattern_AddBlob(bed_value, base_x + s * 2, 18, 4, 4, 12);
+
+  // thigh
+  TestPattern_AddBlob(bed_value, base_x + s * 1, 23, 2, 4, 18 + body_scale_bias / 5);
+
+  // knee
+  TestPattern_AddBlob(bed_value, base_x + s * 0, 27, 2, 2, 18 + body_scale_bias / 6);
+
+  // lower leg / heel tail
+  TestPattern_AddBlob(bed_value, base_x + s * (-1), 30, 2, 2, 14 + body_scale_bias / 6);
+}
+/*----------------------------------------------------------*/
+
+static void TestPattern_FillSideLying(uint8_t bed_value[BED_ROWS][BED_COLS],
+                                      uint8_t bed_status[BED_ROWS][BED_COLS],
+                                      uint8_t bed_valid[BED_ROWS][BED_COLS],
+                                      uint8_t side_right)
 {
   TestPattern_ClearBed(bed_value, bed_status, bed_valid);
 
-  // === برای UI فعلی:
-  // مقدار بیشتر = داغ‌تر
-  // پس background را کم می‌گذاریم
   for (int r = 0; r < BED_ROWS; r++)
   {
     for (int c = 0; c < BED_COLS; c++)
@@ -656,59 +366,372 @@ static void TestPattern_FillRealisticSupine(uint8_t bed_value[BED_ROWS][BED_COLS
     }
   }
 
+  // right side => body near right half
+  // left side  => mirrored to left half
+  int base_x = side_right ? 7 : 8;
+  int mirror = side_right ? 0 : 1;
+
+  g_pattern_info.body_top_row = 2U;
+  g_pattern_info.body_bottom_row = 31U;
+  g_pattern_info.center_col = (uint8_t)base_x;
+
+  TestPattern_AddSideChain(bed_value, base_x, mirror, 0);
+
+
+  // neck bridge
+  if (side_right)
+    TestPattern_AddBlob(bed_value, 9, 6, 2, 2, 10);
+  else
+    TestPattern_AddBlob(bed_value, 6, 6, 2, 2, 10);
+
+  // shoulder contact boost
+  if (side_right)
+    TestPattern_AddBlob(bed_value, 10, 9, 3, 2, 18);
+  else
+    TestPattern_AddBlob(bed_value, 5, 9, 3, 2, 18);
+
+  // hip contact boost + falloff
+  if (side_right) {
+    TestPattern_AddBlob(bed_value, 11, 18, 2, 2, 16);
+    TestPattern_AddBlob(bed_value, 10, 18, 4, 4, 12);
+  } else {
+    TestPattern_AddBlob(bed_value, 4, 18, 2, 2, 16);
+    TestPattern_AddBlob(bed_value, 5, 18, 4, 4, 12);
+  }
+
+  // bent knee hint
+  if (side_right)
+    TestPattern_AddBlob(bed_value, 8, 26, 2, 2, 10);
+  else
+    TestPattern_AddBlob(bed_value, 7, 26, 2, 2, 10);
+
+  for (int r = 0; r < BED_ROWS; r++)
+  {
+    for (int c = 0; c < BED_COLS; c++)
+    {
+      if (bed_value[r][c] < 5U)
+        bed_value[r][c] = 2U;
+      if (bed_value[r][c] > 63U)
+        bed_value[r][c] = 63U;
+    }
+  }
+}
+/*----------------------------------------------------------*/
+/*static void TestPattern_FillRealisticBody(uint8_t bed_value[BED_ROWS][BED_COLS],
+                                          uint8_t bed_status[BED_ROWS][BED_COLS],
+                                          uint8_t bed_valid[BED_ROWS][BED_COLS],
+                                          uint8_t center,
+                                          int sacrum_boost,
+                                          int heel_left_boost,
+                                          int heel_right_boost,
+                                          int body_scale_bias)
+{
+  TestPattern_ClearBed(bed_value, bed_status, bed_valid);
+
   const uint8_t body_top = 2U;
   const uint8_t body_bottom = 31U;
-  const uint8_t center = 8U;
 
   g_pattern_info.body_top_row = body_top;
   g_pattern_info.body_bottom_row = body_bottom;
   g_pattern_info.center_col = center;
 
-  // -------------------------------------------------
-  // body blobs
-  // -------------------------------------------------
-
-  // head
-  TestPattern_AddBlob(bed_value, center, 3, 2, 2, 16);
-
-  // shoulders / upper chest
-  TestPattern_AddBlob(bed_value, center, 8, 5, 2, 34);
-
-  // torso
-  TestPattern_AddBlob(bed_value, center, 13, 4, 4, 18);
-
-  // torso bridge (خیلی مهم)
-  TestPattern_AddBlob(bed_value, center, 14, 5, 6, 14);
-
-  // sacrum / pelvis hotspot (dominant)
-  TestPattern_AddBlob(bed_value, center, 18, 3, 3, 55);
-
-  // upper legs
-  TestPattern_AddBlob(bed_value, center, 23, 2, 4, 16);
-
-  // lower legs
-  TestPattern_AddBlob(bed_value, center, 28, 2, 3, 10);
-
-  // left heel
-  TestPattern_AddBlob(bed_value, 7, 30, 1, 1, 30);
-
-  // right heel
-  TestPattern_AddBlob(bed_value, 9, 30, 1, 1, 30);
-
-  // -------------------------------------------------
-  // clip very low body remnants if needed
-  // -------------------------------------------------
   for (int r = 0; r < BED_ROWS; r++)
   {
     for (int c = 0; c < BED_COLS; c++)
     {
-      // برای تمیزتر شدن shape، مقادیر خیلی کم را background کن
+      bed_value[r][c] = 2U;
+      bed_status[r][c] = 0U;
+      bed_valid[r][c] = 1U;
+    }
+  }
+
+  // head
+  TestPattern_AddBlob(bed_value, center, 3, 2, 2, 16 + body_scale_bias / 4);
+
+  // neck / upper transition
+  TestPattern_AddBlob(bed_value, center, 5, 1, 1, 8 + body_scale_bias / 6);
+
+  // shoulders / upper chest
+  TestPattern_AddBlob(bed_value, center, 8, 5, 2, 34 + body_scale_bias / 3);
+
+  // torso
+  TestPattern_AddBlob(bed_value, center, 13, 4, 4, 18 + body_scale_bias / 4);
+
+  // torso bridge
+  TestPattern_AddBlob(bed_value, center, 14, 5, 6, 14 + body_scale_bias / 5);
+
+  // sacrum / pelvis
+  TestPattern_AddBlob(bed_value, center, 18, 3, 3, 55 + sacrum_boost + body_scale_bias / 3);
+
+  // upper legs
+  TestPattern_AddBlob(bed_value, center, 23, 2, 4, 16 + body_scale_bias / 5);
+
+  // lower legs
+  TestPattern_AddBlob(bed_value, center, 28, 2, 3, 10 + body_scale_bias / 6);
+
+  // left heel
+  TestPattern_AddBlob(bed_value, center - 1, 30, 1, 1, 30 + heel_left_boost);
+
+  // right heel
+  TestPattern_AddBlob(bed_value, center + 1, 30, 1, 1, 30 + heel_right_boost);
+
+  for (int r = 0; r < BED_ROWS; r++)
+  {
+    for (int c = 0; c < BED_COLS; c++)
+    {
       if (bed_value[r][c] < 5U)
         bed_value[r][c] = 2U;
+
+      if (bed_value[r][c] > 63U)
+        bed_value[r][c] = 63U;
+    }
+  }
+}*/
+
+
+static void TestPattern_FillRealisticBody(uint8_t bed_value[BED_ROWS][BED_COLS],
+                                          uint8_t bed_status[BED_ROWS][BED_COLS],
+                                          uint8_t bed_valid[BED_ROWS][BED_COLS],
+                                          uint8_t center,
+                                          int sacrum_boost,
+                                          int heel_left_boost,
+                                          int heel_right_boost,
+                                          int body_scale_bias)
+{
+  // === clear base ===
+  TestPattern_ClearBed(bed_value, bed_status, bed_valid);
+
+  const uint8_t body_top = 2U;
+  const uint8_t body_bottom = 31U;
+
+  g_pattern_info.body_top_row = body_top;
+  g_pattern_info.body_bottom_row = body_bottom;
+  g_pattern_info.center_col = center;
+
+  // === background baseline ===
+  for (int r = 0; r < BED_ROWS; r++)
+  {
+    for (int c = 0; c < BED_COLS; c++)
+    {
+      bed_value[r][c] = 2U;
+      bed_status[r][c] = 0U;
+      bed_valid[r][c] = 1U;
+    }
+  }
+
+  // ================================
+  // BODY BLOBS (REALISTIC SUPINE BASE)
+  // ================================
+
+  // head
+  TestPattern_AddBlob(bed_value, center, 3, 2, 2,
+                      16 + body_scale_bias / 4);
+
+  // neck (خیلی مهم برای اتصال)
+  TestPattern_AddBlob(bed_value, center, 5, 1, 1,
+                      8 + body_scale_bias / 6);
+
+  // shoulders
+  TestPattern_AddBlob(bed_value, center, 8, 5, 2,
+                      34 + body_scale_bias / 3);
+
+  // torso
+  TestPattern_AddBlob(bed_value, center, 13, 4, 4,
+                      18 + body_scale_bias / 4);
+
+  // torso bridge (smooth transition)
+  TestPattern_AddBlob(bed_value, center, 14, 5, 6,
+                      14 + body_scale_bias / 5);
+
+  // sacrum / pelvis (main hotspot)
+  TestPattern_AddBlob(bed_value, center, 18, 3, 3,
+                      55 + sacrum_boost + body_scale_bias / 3);
+
+  // upper legs
+  TestPattern_AddBlob(bed_value, center, 23, 2, 4,
+                      16 + body_scale_bias / 5);
+
+  // lower legs
+  TestPattern_AddBlob(bed_value, center, 28, 2, 3,
+                      10 + body_scale_bias / 6);
+
+  // heels
+  TestPattern_AddBlob(bed_value, center - 1, 30, 1, 1,
+                      30 + heel_left_boost);
+
+  TestPattern_AddBlob(bed_value, center + 1, 30, 1, 1,
+                      30 + heel_right_boost);
+
+  // ================================
+  // CLEANUP / CLAMP
+  // ================================
+  for (int r = 0; r < BED_ROWS; r++)
+  {
+    for (int c = 0; c < BED_COLS; c++)
+    {
+      // حذف نویز خیلی کم
+      if (bed_value[r][c] < 5U)
+        bed_value[r][c] = 2U;
+
+      // clamp
+      if (bed_value[r][c] > 63U)
+        bed_value[r][c] = 63U;
     }
   }
 }
 
+
+
+/*----------------------------------------------------------*/
+
+
+static void TestPattern_FillRealisticSupine(uint8_t bed_value[BED_ROWS][BED_COLS],
+                                            uint8_t bed_status[BED_ROWS][BED_COLS],
+                                            uint8_t bed_valid[BED_ROWS][BED_COLS])
+{
+  TestPattern_FillRealisticBody(bed_value, bed_status, bed_valid,
+                                8U,   // center
+                                0,    // sacrum boost
+                                0,    // left heel boost
+                                0,    // right heel boost
+                                0);   // body scale bias
+}
+
+/*----------------------------------------------------------*/
+
+
+static void TestPattern_FillSideLeft(uint8_t bed_value[BED_ROWS][BED_COLS],
+                                     uint8_t bed_status[BED_ROWS][BED_COLS],
+                                     uint8_t bed_valid[BED_ROWS][BED_COLS])
+{
+  TestPattern_FillSideLying(bed_value, bed_status, bed_valid, 0U);
+}
+
+static void TestPattern_FillSideRight(uint8_t bed_value[BED_ROWS][BED_COLS],
+                                      uint8_t bed_status[BED_ROWS][BED_COLS],
+                                      uint8_t bed_valid[BED_ROWS][BED_COLS])
+{
+  TestPattern_FillSideLying(bed_value, bed_status, bed_valid, 1U);
+}
+
+/*----------------------------------------------------------*/
+
+
+static void TestPattern_FillTurningCycle(uint8_t bed_value[BED_ROWS][BED_COLS],
+                                         uint8_t bed_status[BED_ROWS][BED_COLS],
+                                         uint8_t bed_valid[BED_ROWS][BED_COLS])
+{
+  uint32_t now_ms = HAL_GetTick();
+  uint32_t phase_s = (now_ms / 1000U) % 50U;
+
+  if (phase_s < 10U)
+  {
+    // 0..9s => supine
+    TestPattern_FillRealisticSupine(bed_value, bed_status, bed_valid);
+  }
+  else if (phase_s < 20U)
+  {
+    // 10..19s => right side
+    TestPattern_FillSideRight(bed_value, bed_status, bed_valid);
+  }
+  else if (phase_s < 30U)
+  {
+    // 20..29s => supine
+    TestPattern_FillRealisticSupine(bed_value, bed_status, bed_valid);
+  }
+  else if (phase_s < 40U)
+  {
+    // 30..39s => left side
+    TestPattern_FillSideLeft(bed_value, bed_status, bed_valid);
+  }
+  else
+  {
+    // 40..49s => supine
+    TestPattern_FillRealisticSupine(bed_value, bed_status, bed_valid);
+  }
+}
+
+/*----------------------------------------------------------*/
+
+
+static void TestPattern_FillTurningCycleSmooth(uint8_t bed_value[BED_ROWS][BED_COLS],
+                                               uint8_t bed_status[BED_ROWS][BED_COLS],
+                                               uint8_t bed_valid[BED_ROWS][BED_COLS])
+{
+  static uint8_t A[BED_ROWS][BED_COLS];
+  static uint8_t B[BED_ROWS][BED_COLS];
+
+  uint32_t now = HAL_GetTick();
+  uint32_t t = (now / 1000U) % 40U;   // کل سیکل 40 ثانیه
+
+  uint8_t alpha = 0;
+
+  // ----------------------------
+  // 0–10: supine ثابت
+  // ----------------------------
+  if (t < 10)
+  {
+    TestPattern_FillRealisticSupine(bed_value, bed_status, bed_valid);
+    return;
+  }
+
+  // ----------------------------
+  // 10–15: supine → right
+  // ----------------------------
+  if (t < 15)
+  {
+    TestPattern_FillRealisticSupine(A, bed_status, bed_valid);
+    TestPattern_FillSideRight(B, bed_status, bed_valid);
+
+    alpha = (uint8_t)((t - 10) * 255 / 5);
+    TestPattern_Blend(bed_value, A, B, alpha);
+    return;
+  }
+
+  // ----------------------------
+  // 15–25: right ثابت
+  // ----------------------------
+  if (t < 25)
+  {
+    TestPattern_FillSideRight(bed_value, bed_status, bed_valid);
+    return;
+  }
+
+  // ----------------------------
+  // 25–30: right → supine
+  // ----------------------------
+  if (t < 30)
+  {
+    TestPattern_FillSideRight(A, bed_status, bed_valid);
+    TestPattern_FillRealisticSupine(B, bed_status, bed_valid);
+
+    alpha = (uint8_t)((t - 25) * 255 / 5);
+    TestPattern_Blend(bed_value, A, B, alpha);
+    return;
+  }
+
+  // ----------------------------
+  // 30–35: supine → left
+  // ----------------------------
+  if (t < 35)
+  {
+    TestPattern_FillRealisticSupine(A, bed_status, bed_valid);
+    TestPattern_FillSideLeft(B, bed_status, bed_valid);
+
+    alpha = (uint8_t)((t - 30) * 255 / 5);
+    TestPattern_Blend(bed_value, A, B, alpha);
+    return;
+  }
+
+  // ----------------------------
+  // 35–40: left → supine
+  // ----------------------------
+  TestPattern_FillSideLeft(A, bed_status, bed_valid);
+  TestPattern_FillRealisticSupine(B, bed_status, bed_valid);
+
+  alpha = (uint8_t)((t - 35) * 255 / 5);
+  TestPattern_Blend(bed_value, A, B, alpha);
+}
 /*----------------------------------------------------------*/
 
 // === generate one artificial bed snapshot ===
@@ -753,6 +776,20 @@ void TestPattern_Generate(uint8_t bed_value[BED_ROWS][BED_COLS],
     case PATTERN_BODY_REALISTIC_SUPINE:
     	TestPattern_FillRealisticSupine(bed_value, bed_status, bed_valid);
       break;
+    case PATTERN_BODY_SIDE_LEFT:
+        TestPattern_FillSideLeft(bed_value, bed_status, bed_valid);
+        break;
+    case PATTERN_BODY_TURNING_CYCLE:
+       TestPattern_FillTurningCycle(bed_value, bed_status, bed_valid);
+      break;
+
+    case PATTERN_BODY_SIDE_RIGHT:
+        TestPattern_FillSideRight(bed_value, bed_status, bed_valid);
+        break;
+    case PATTERN_BODY_TURNING_CYCLE_SMOOTH:
+        TestPattern_FillTurningCycleSmooth(bed_value, bed_status, bed_valid);
+      break;
+
 
     case PATTERN_REAL_DATA:
     default:

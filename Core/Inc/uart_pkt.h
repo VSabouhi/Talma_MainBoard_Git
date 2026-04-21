@@ -12,24 +12,37 @@
 [3]  SEQ
 [4]  frame_id L
 [5]  frame_id H
-[6]  risk_score
-[7]  risk_level
-[8]  movement_detected
-[9]  time_since_last_movement_s L
-[10] time_since_last_movement_s H
-[11] alert_active
-[12] alert_type
-[13] alert_severity
-[14] alert_duration_s L
-[15] alert_duration_s H
-[16] recommendation_code
-[17] recommendation_priority
-[18] sacrum_avg
-[19] sacrum_peak
-[20] heel_left_avg
-[21] heel_right_avg
-[22] CRC0
-[23] CRC1
+[6]  uptime_s L
+[7]  uptime_s H
+[8]  risk_score
+[9]  risk_level
+[10] movement_detected
+[11] time_since_last_movement_s L
+[12] time_since_last_movement_s H
+[13] alert_active
+[14] alert_type
+[15] alert_severity
+[16] alert_duration_s L
+[17] alert_duration_s H
+[18] recommendation_code
+[19] recommendation_priority
+[20] sacrum_avg
+[21] sacrum_peak
+[22] heel_left_avg
+[23] heel_right_avg
+[24] shoulders_avg
+[25] shoulders_peak
+[26] pressure_exposure_threshold
+[27] sacrum_exposure_s L
+[28] sacrum_exposure_s H
+[29] heels_exposure_s L
+[30] heels_exposure_s H
+[31] shoulders_exposure_s L
+[32] shoulders_exposure_s H
+[33] zones_valid_mask
+[34] summary_flags
+[35] CRC0
+[36] CRC1
 */
 /*----------------------------------------------------------------------------*/
 #define PKT_SOF0        0xAA
@@ -59,6 +72,7 @@ void UartPkt_SendNodeHealth(uint16_t frame_id,
 // === ارسال summary فشرده برای UI ===
 // این packet خروجی سطح بالا و مستقل از UI است
 void UartPkt_SendSummary(uint16_t frame_id,
+                         uint16_t uptime_s,
                          uint8_t risk_score,
                          uint8_t risk_level,
                          uint8_t movement_detected,
@@ -72,7 +86,15 @@ void UartPkt_SendSummary(uint16_t frame_id,
                          uint8_t sacrum_avg,
                          uint8_t sacrum_peak,
                          uint8_t heel_left_avg,
-                         uint8_t heel_right_avg);
+                         uint8_t heel_right_avg,
+                         uint8_t shoulders_avg,
+                         uint8_t shoulders_peak,
+                         uint8_t pressure_exposure_threshold,
+                         uint16_t sacrum_exposure_s,
+                         uint16_t heels_exposure_s,
+                         uint16_t shoulders_exposure_s,
+                         uint8_t zones_valid_mask,
+                         uint8_t summary_flags);
 /*----------------------------------------------------------------------------*/
 void UartPkt_Init(void);
 void UartTx_Init(void);

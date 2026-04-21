@@ -5,6 +5,8 @@
 #include "queue.h"
 #include "bed_model.h"
 #include "node_state.h"
+#include  <stdio.h>
+
 /*----------------------------------------------------------------------------*/
 
 
@@ -161,22 +163,32 @@ void SerialLink_TxTask(void *argument)
 
         case SL_MSG_TYPE_SUMMARY:
           // === ارسال summary packet برای UI ===
-          UartPkt_SendSummary(
-              m.payload.summary.frame_id,
-              m.payload.summary.risk_score,
-              m.payload.summary.risk_level,
-              m.payload.summary.movement_detected,
-              m.payload.summary.time_since_last_movement_s,
-              m.payload.summary.alert_active,
-              m.payload.summary.alert_type,
-              m.payload.summary.alert_severity,
-              m.payload.summary.alert_duration_s,
-              m.payload.summary.recommendation_code,
-              m.payload.summary.recommendation_priority,
-              m.payload.summary.sacrum_avg,
-              m.payload.summary.sacrum_peak,
-              m.payload.summary.heel_left_avg,
-              m.payload.summary.heel_right_avg);
+        	UartPkt_SendSummary(
+        	      m.payload.summary.frame_id,
+        	      m.payload.summary.uptime_s,
+        	      m.payload.summary.risk_score,
+        	      m.payload.summary.risk_level,
+        	      m.payload.summary.movement_detected,
+        	      m.payload.summary.time_since_last_movement_s,
+        	      m.payload.summary.alert_active,
+        	      m.payload.summary.alert_type,
+        	      m.payload.summary.alert_severity,
+        	      m.payload.summary.alert_duration_s,
+        	      m.payload.summary.recommendation_code,
+        	      m.payload.summary.recommendation_priority,
+        	      m.payload.summary.sacrum_avg,
+        	      m.payload.summary.sacrum_peak,
+        	      m.payload.summary.heel_left_avg,
+        	      m.payload.summary.heel_right_avg,
+        	      m.payload.summary.shoulders_avg,
+        	      m.payload.summary.shoulders_peak,
+			      m.payload.summary.pressure_exposure_threshold,
+			      m.payload.summary.sacrum_exposure_s,
+			      m.payload.summary.heels_exposure_s,
+			      m.payload.summary.shoulders_exposure_s,
+			      m.payload.summary.zones_valid_mask,
+			      m.payload.summary.summary_flags);
+
           break;
 
         default:
@@ -216,6 +228,7 @@ BaseType_t SerialLink_SendNodeHealth_Async(uint16_t bed_cycle)
 }
 /*----------------------------------------------------------------------------*/
 BaseType_t SerialLink_SendSummary_Async(uint16_t frame_id,
+                                        uint16_t uptime_s,
                                         uint8_t risk_score,
                                         uint8_t risk_level,
                                         uint8_t movement_detected,
@@ -229,7 +242,15 @@ BaseType_t SerialLink_SendSummary_Async(uint16_t frame_id,
                                         uint8_t sacrum_avg,
                                         uint8_t sacrum_peak,
                                         uint8_t heel_left_avg,
-                                        uint8_t heel_right_avg)
+                                        uint8_t heel_right_avg,
+                                        uint8_t shoulders_avg,
+                                        uint8_t shoulders_peak,
+                                        uint8_t pressure_exposure_threshold,
+                                        uint16_t sacrum_exposure_s,
+                                        uint16_t heels_exposure_s,
+                                        uint16_t shoulders_exposure_s,
+										uint8_t zones_valid_mask,
+										uint8_t summary_flags)
 {
   SL_Msg m;
 
@@ -251,6 +272,14 @@ BaseType_t SerialLink_SendSummary_Async(uint16_t frame_id,
   m.payload.summary.sacrum_peak = sacrum_peak;
   m.payload.summary.heel_left_avg = heel_left_avg;
   m.payload.summary.heel_right_avg = heel_right_avg;
+  m.payload.summary.shoulders_avg = shoulders_avg;
+  m.payload.summary.shoulders_peak = shoulders_peak;
+  m.payload.summary.pressure_exposure_threshold = pressure_exposure_threshold;
+  m.payload.summary.sacrum_exposure_s = sacrum_exposure_s;
+  m.payload.summary.heels_exposure_s = heels_exposure_s;
+  m.payload.summary.shoulders_exposure_s = shoulders_exposure_s;
+  m.payload.summary.zones_valid_mask = zones_valid_mask;
+  m.payload.summary.summary_flags = summary_flags;
 
   if (qSerialTx == NULL) return pdFAIL;
 

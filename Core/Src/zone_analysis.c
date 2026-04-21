@@ -15,55 +15,34 @@ static ZoneRect_t g_zone_rects[ZONE_COUNT];
 void ZoneAnalysis_Init(void)
 {
   // === sacrum zone ===
-  // بخش مرکزی-پایینی تخت
-  /*g_zone_rects[ZONE_SACRUM].row_start = 14U;
-  g_zone_rects[ZONE_SACRUM].row_end   = 19U;
+  g_zone_rects[ZONE_SACRUM].row_start = 15U;
+  g_zone_rects[ZONE_SACRUM].row_end   = 20U;
   g_zone_rects[ZONE_SACRUM].col_start = 5U;
-  g_zone_rects[ZONE_SACRUM].col_end   = 10U;*/
-
-
-  // === sacrum zone (TEMP FOR TEST) ===
-  // چون فقط node 1 وصله، روی row 2..3 تنظیم می‌کنیم
-  g_zone_rects[ZONE_SACRUM].row_start = 2U;
-  g_zone_rects[ZONE_SACRUM].row_end   = 3U;
-  g_zone_rects[ZONE_SACRUM].col_start = 0U;
-  g_zone_rects[ZONE_SACRUM].col_end   = 15U;
-
-
-  // === disable other zones temporarily ===
-  g_zone_rects[ZONE_LEFT_HEEL].row_start = 0;
-  g_zone_rects[ZONE_LEFT_HEEL].row_end   = 0;
-  g_zone_rects[ZONE_LEFT_HEEL].col_start = 0;
-  g_zone_rects[ZONE_LEFT_HEEL].col_end   = 0;
-
-  g_zone_rects[ZONE_RIGHT_HEEL] = g_zone_rects[ZONE_LEFT_HEEL];
-  g_zone_rects[ZONE_LEFT_SHOULDER] = g_zone_rects[ZONE_LEFT_HEEL];
-  g_zone_rects[ZONE_RIGHT_SHOULDER] = g_zone_rects[ZONE_LEFT_HEEL];
-
+  g_zone_rects[ZONE_SACRUM].col_end   = 10U;
 
   // === left heel zone ===
-  /*g_zone_rects[ZONE_LEFT_HEEL].row_start = 28U;
+  g_zone_rects[ZONE_LEFT_HEEL].row_start = 28U;
   g_zone_rects[ZONE_LEFT_HEEL].row_end   = 31U;
-  g_zone_rects[ZONE_LEFT_HEEL].col_start = 2U;
-  g_zone_rects[ZONE_LEFT_HEEL].col_end   = 5U;*/
+  g_zone_rects[ZONE_LEFT_HEEL].col_start = 5U;
+  g_zone_rects[ZONE_LEFT_HEEL].col_end   = 7U;
 
   // === right heel zone ===
-  /*g_zone_rects[ZONE_RIGHT_HEEL].row_start = 28U;
+  g_zone_rects[ZONE_RIGHT_HEEL].row_start = 28U;
   g_zone_rects[ZONE_RIGHT_HEEL].row_end   = 31U;
-  g_zone_rects[ZONE_RIGHT_HEEL].col_start = 10U;
-  g_zone_rects[ZONE_RIGHT_HEEL].col_end   = 13U;
+  g_zone_rects[ZONE_RIGHT_HEEL].col_start = 8U;
+  g_zone_rects[ZONE_RIGHT_HEEL].col_end   = 10U;
 
   // === left shoulder zone ===
-  g_zone_rects[ZONE_LEFT_SHOULDER].row_start = 4U;
-  g_zone_rects[ZONE_LEFT_SHOULDER].row_end   = 8U;
-  g_zone_rects[ZONE_LEFT_SHOULDER].col_start = 2U;
-  g_zone_rects[ZONE_LEFT_SHOULDER].col_end   = 5U;
+  g_zone_rects[ZONE_LEFT_SHOULDER].row_start = 6U;
+  g_zone_rects[ZONE_LEFT_SHOULDER].row_end   = 10U;
+  g_zone_rects[ZONE_LEFT_SHOULDER].col_start = 3U;
+  g_zone_rects[ZONE_LEFT_SHOULDER].col_end   = 6U;
 
   // === right shoulder zone ===
-  g_zone_rects[ZONE_RIGHT_SHOULDER].row_start = 4U;
-  g_zone_rects[ZONE_RIGHT_SHOULDER].row_end   = 8U;
-  g_zone_rects[ZONE_RIGHT_SHOULDER].col_start = 10U;
-  g_zone_rects[ZONE_RIGHT_SHOULDER].col_end   = 13U;*/
+  g_zone_rects[ZONE_RIGHT_SHOULDER].row_start = 6U;
+  g_zone_rects[ZONE_RIGHT_SHOULDER].row_end   = 10U;
+  g_zone_rects[ZONE_RIGHT_SHOULDER].col_start = 9U;
+  g_zone_rects[ZONE_RIGHT_SHOULDER].col_end   = 12U;
 }
 
 

@@ -48,26 +48,30 @@ typedef struct {
 // === summary payload ===
 // این ساختار همه متریک‌های لازم برای UI را داخل queue حمل می‌کند
 typedef struct {
-  uint16_t frame_id;
-
-  uint8_t risk_score;
-  uint8_t risk_level;
-
-  uint8_t movement_detected;
-  uint16_t time_since_last_movement_s;
-
-  uint8_t alert_active;
-  uint8_t alert_type;
-  uint8_t alert_severity;
-  uint16_t alert_duration_s;
-
-  uint8_t recommendation_code;
-  uint8_t recommendation_priority;
-
-  uint8_t sacrum_avg;
-  uint8_t sacrum_peak;
-  uint8_t heel_left_avg;
-  uint8_t heel_right_avg;
+	  uint16_t frame_id;
+	  uint16_t uptime_s;
+	  uint8_t risk_score;
+	  uint8_t risk_level;
+	  uint8_t movement_detected;
+	  uint16_t time_since_last_movement_s;
+	  uint8_t alert_active;
+	  uint8_t alert_type;
+	  uint8_t alert_severity;
+	  uint16_t alert_duration_s;
+	  uint8_t recommendation_code;
+	  uint8_t recommendation_priority;
+	  uint8_t sacrum_avg;
+	  uint8_t sacrum_peak;
+	  uint8_t heel_left_avg;
+	  uint8_t heel_right_avg;
+	  uint8_t shoulders_avg;
+	  uint8_t shoulders_peak;
+	  uint8_t pressure_exposure_threshold;
+	  uint16_t sacrum_exposure_s;
+	  uint16_t heels_exposure_s;
+	  uint16_t shoulders_exposure_s;
+	  uint8_t zones_valid_mask;
+	  uint8_t summary_flags;
 } SL_SummaryPayload;
 
 
@@ -99,6 +103,7 @@ BaseType_t SerialLink_SendNodeHealth_Async(uint16_t bed_cycle);
 
 // === enqueue summary packet for UI ===
 BaseType_t SerialLink_SendSummary_Async(uint16_t frame_id,
+                                        uint16_t uptime_s,
                                         uint8_t risk_score,
                                         uint8_t risk_level,
                                         uint8_t movement_detected,
@@ -112,7 +117,15 @@ BaseType_t SerialLink_SendSummary_Async(uint16_t frame_id,
                                         uint8_t sacrum_avg,
                                         uint8_t sacrum_peak,
                                         uint8_t heel_left_avg,
-                                        uint8_t heel_right_avg);
+                                        uint8_t heel_right_avg,
+                                        uint8_t shoulders_avg,
+                                        uint8_t shoulders_peak,
+                                        uint8_t pressure_exposure_threshold,
+                                        uint16_t sacrum_exposure_s,
+                                        uint16_t heels_exposure_s,
+                                        uint16_t shoulders_exposure_s,
+										uint8_t zones_valid_mask,
+										uint8_t summary_flags);
 /*----------------------------------------------------------------------------*/
 extern QueueHandle_t qSerialTx;
 

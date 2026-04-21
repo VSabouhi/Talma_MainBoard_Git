@@ -191,6 +191,7 @@ static void CAN_StartWithIrq(void)
 
 void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
 {
+    HAL_GPIO_TogglePin(LED2_GPIO_Port, LED2_Pin);
 	  CanRtosRx_OnFifo0Pending(hcan);
 }
 /*----------------------------------------------------------------------------*/

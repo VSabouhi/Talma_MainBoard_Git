@@ -3,10 +3,15 @@
 #include "usart.h"
 #include <string.h>
 /*----------------------------------------------------------------------------*/
+// === STATIC TX BUFFERS (to avoid stack overflow) ===
 
+static uint8_t pkt_node32[42];
+static uint8_t pkt_bed_snapshot[522];
+static uint8_t pkt_bed_status[522];
+static uint8_t pkt_node_health[26];
+static uint8_t pkt_summary[37];
 /*----------------------------------------------------------------------------*/
 static uint8_t g_seq = 0;
-/*----------------------------------------------------------------------------*/
 /*----------------------------------------------------------------------------*/
 void UartPkt_Init(void)
 {
@@ -17,7 +22,7 @@ void UartPkt_Init(void)
 // AA 55 10 seq node cycleL cycleH flags [32 bytes] 12 34
 void UartPkt_SendNode32(uint8_t nodeId, uint16_t cycle, uint8_t flags, const uint8_t sensors32[32])
 {
-  uint8_t pkt[42];
+	uint8_t *pkt = pkt_node32;
 
   pkt[0] = PKT_SOF0;
   pkt[1] = PKT_SOF1;
@@ -35,7 +40,7 @@ void UartPkt_SendNode32(uint8_t nodeId, uint16_t cycle, uint8_t flags, const uin
   pkt[41] = PKT_CRC1;
 
 
-  HAL_UART_Transmit(&huart4, pkt, sizeof(pkt), 100);
+  HAL_UART_Transmit(&huart4, pkt, 42, 100);
 }
 /*----------------------------------------------------------------------------*/
 /*void UartPkt_SendNode32(uint8_t node, uint16_t cycle, uint8_t flags,uint8_t *data)
@@ -76,7 +81,7 @@ void UartPkt_SendBedSnapshot(uint16_t bed_cycle,
 	// NOTE:
 	// bed_cycle در این مرحله نقش frame_id برای UI را دارد
 
-  uint8_t pkt[522];
+  uint8_t *pkt = pkt_bed_snapshot;
   uint16_t k = 8;
 
   pkt[0] = PKT_SOF0;
@@ -103,7 +108,7 @@ void UartPkt_SendBedSnapshot(uint16_t bed_cycle,
   pkt[k++] = PKT_CRC0;
   pkt[k++] = PKT_CRC1;
 
-  HAL_UART_Transmit(&huart4, pkt, sizeof(pkt), 200);
+  HAL_UART_Transmit(&huart4, pkt, 522, 200);
 }
 /*----------------------------------------------------------------------------*/
 // === ارسال نقشه وضعیت کل تخت به UI ===
@@ -124,7 +129,7 @@ void UartPkt_SendBedStatus(uint16_t bed_cycle,
   // [520] CRC0
   // [521] CRC1
 
-  uint8_t pkt[522];
+  uint8_t *pkt = pkt_bed_status;
   uint16_t k = 8;
 
   pkt[0] = PKT_SOF0;
@@ -151,7 +156,7 @@ void UartPkt_SendBedStatus(uint16_t bed_cycle,
   pkt[k++] = PKT_CRC0;
   pkt[k++] = PKT_CRC1;
 
-  HAL_UART_Transmit(&huart4, pkt, sizeof(pkt), 200);
+  HAL_UART_Transmit(&huart4, pkt, 522, 200);
 }
 /*----------------------------------------------------------------------------*/
 // === ارسال وضعیت همه نودها به UI ===
@@ -172,7 +177,7 @@ void UartPkt_SendNodeHealth(uint16_t bed_cycle,
   // [24] CRC0 (فعلاً ثابت)
   // [25] CRC1 (فعلاً ثابت)
 
-  uint8_t pkt[26];
+  uint8_t *pkt = pkt_node_health;
 
   pkt[0] = PKT_SOF0;
   pkt[1] = PKT_SOF1;
@@ -195,12 +200,13 @@ void UartPkt_SendNodeHealth(uint16_t bed_cycle,
   pkt[24] = PKT_CRC0;
   pkt[25] = PKT_CRC1;
 
-  HAL_UART_Transmit(&huart4, pkt, sizeof(pkt), 100);
+  HAL_UART_Transmit(&huart4, pkt, 26, 100);
 }
 /*----------------------------------------------------------------------------*/
 // === ارسال summary packet برای UI ===
 // این packet فشرده است و مهم‌ترین متریک‌های بالادستی را یکجا می‌فرستد
 void UartPkt_SendSummary(uint16_t frame_id,
+                         uint16_t uptime_s,
                          uint8_t risk_score,
                          uint8_t risk_level,
                          uint8_t movement_detected,
@@ -214,45 +220,72 @@ void UartPkt_SendSummary(uint16_t frame_id,
                          uint8_t sacrum_avg,
                          uint8_t sacrum_peak,
                          uint8_t heel_left_avg,
-                         uint8_t heel_right_avg)
-{
-  uint8_t pkt[24];
+                         uint8_t heel_right_avg,
+                         uint8_t shoulders_avg,
+                         uint8_t shoulders_peak,
+                         uint8_t pressure_exposure_threshold,
+                         uint16_t sacrum_exposure_s,
+                         uint16_t heels_exposure_s,
+                         uint16_t shoulders_exposure_s,
+						 uint8_t zones_valid_mask,
+						 uint8_t summary_flags)
 
-  pkt[0] = PKT_SOF0;
-  pkt[1] = PKT_SOF1;
-  pkt[2] = PKT_TYPE_SUMMARY;
-  pkt[3] = g_seq++;
+{
+  uint8_t *pkt = pkt_summary;
+
+  pkt[0]  = PKT_SOF0;
+  pkt[1]  = PKT_SOF1;
+  pkt[2]  = PKT_TYPE_SUMMARY;
+  pkt[3]  = g_seq++;
 
   pkt[4]  = (uint8_t)(frame_id & 0xFF);
   pkt[5]  = (uint8_t)((frame_id >> 8) & 0xFF);
 
-  pkt[6]  = risk_score;
-  pkt[7]  = risk_level;
-  pkt[8]  = movement_detected;
+  pkt[6]  = (uint8_t)(uptime_s & 0xFF);
+  pkt[7]  = (uint8_t)((uptime_s >> 8) & 0xFF);
 
-  pkt[9]  = (uint8_t)(time_since_last_movement_s & 0xFF);
-  pkt[10] = (uint8_t)((time_since_last_movement_s >> 8) & 0xFF);
+  pkt[8]  = risk_score;
+  pkt[9]  = risk_level;
+  pkt[10] = movement_detected;
 
-  pkt[11] = alert_active;
-  pkt[12] = alert_type;
-  pkt[13] = alert_severity;
+  pkt[11] = (uint8_t)(time_since_last_movement_s & 0xFF);
+  pkt[12] = (uint8_t)((time_since_last_movement_s >> 8) & 0xFF);
 
-  pkt[14] = (uint8_t)(alert_duration_s & 0xFF);
-  pkt[15] = (uint8_t)((alert_duration_s >> 8) & 0xFF);
+  pkt[13] = alert_active;
+  pkt[14] = alert_type;
+  pkt[15] = alert_severity;
 
-  pkt[16] = recommendation_code;
-  pkt[17] = recommendation_priority;
+  pkt[16] = (uint8_t)(alert_duration_s & 0xFF);
+  pkt[17] = (uint8_t)((alert_duration_s >> 8) & 0xFF);
 
-  pkt[18] = sacrum_avg;
-  pkt[19] = sacrum_peak;
-  pkt[20] = heel_left_avg;
-  pkt[21] = heel_right_avg;
+  pkt[18] = recommendation_code;
+  pkt[19] = recommendation_priority;
 
-  // === CRC موقت ===
-  pkt[22] = PKT_CRC0;
-  pkt[23] = PKT_CRC1;
+  pkt[20] = sacrum_avg;
+  pkt[21] = sacrum_peak;
+  pkt[22] = heel_left_avg;
+  pkt[23] = heel_right_avg;
+  pkt[24] = shoulders_avg;
+  pkt[25] = shoulders_peak;
 
-  HAL_UART_Transmit(&huart4, pkt, sizeof(pkt), 100);
+  pkt[26] = pressure_exposure_threshold;
+
+  pkt[27] = (uint8_t)(sacrum_exposure_s & 0xFF);
+  pkt[28] = (uint8_t)((sacrum_exposure_s >> 8) & 0xFF);
+
+  pkt[29] = (uint8_t)(heels_exposure_s & 0xFF);
+  pkt[30] = (uint8_t)((heels_exposure_s >> 8) & 0xFF);
+
+  pkt[31] = (uint8_t)(shoulders_exposure_s & 0xFF);
+  pkt[32] = (uint8_t)((shoulders_exposure_s >> 8) & 0xFF);
+
+  pkt[33] = zones_valid_mask;
+  pkt[34] = summary_flags;
+
+  pkt[35] = PKT_CRC0;
+  pkt[36] = PKT_CRC1;
+
+  HAL_UART_Transmit(&huart4, pkt, 37, 100);
 }
 /*----------------------------------------------------------------------------*/
 

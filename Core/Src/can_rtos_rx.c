@@ -3,7 +3,7 @@
 #include "queue.h"
 #include <string.h>
 #include <stdio.h>
-
+#include "main.h"
 /*----------------------------------------------------------*/
 #define CAN_RX_QUEUE_LEN 128
 /*----------------------------------------------------------*/
@@ -34,7 +34,7 @@ void CanRtosRx_Init(void)
 uint32_t CanRtosRx_Dropped(void){ return dropped; }
 /*----------------------------------------------------------*/
 
-void CanRtosRx_OnFifo0Pending(CAN_HandleTypeDef *hcan)
+/*void CanRtosRx_OnFifo0Pending(CAN_HandleTypeDef *hcan)
 {
   BaseType_t hpw = pdFALSE;
   CanRxMsg m;
@@ -47,6 +47,36 @@ void CanRtosRx_OnFifo0Pending(CAN_HandleTypeDef *hcan)
     {
       if (xQueueSendFromISR(qCanRx, &m, &hpw) != pdPASS)
         dropped++;
+    }
+  }
+
+  portYIELD_FROM_ISR(hpw);
+}*/
+
+
+void CanRtosRx_OnFifo0Pending(CAN_HandleTypeDef *hcan)
+{
+  BaseType_t hpw = pdFALSE;
+  CanRxMsg m;
+
+  while (HAL_CAN_GetRxFifoFillLevel(hcan, CAN_RX_FIFO0) > 0)
+  {
+    if (HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &m.h, m.d) != HAL_OK)
+      break;
+
+    HAL_GPIO_TogglePin(LED2_GPIO_Port, LED2_Pin);
+
+    if (qCanRx)
+    {
+      BaseType_t ok = xQueueSendFromISR(qCanRx, &m, &hpw);
+      if (ok != pdPASS)
+      {
+        dropped++;
+      }
+    }
+    else
+    {
+      dropped++;
     }
   }
 

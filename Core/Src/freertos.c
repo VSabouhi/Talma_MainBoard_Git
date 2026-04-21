@@ -61,8 +61,7 @@ typedef StaticTask_t osStaticThreadDef_t;
 
 // === minimum time gap between full-bed snapshots sent to UI ===
 // جلوگیری از ارسال بیش از حد snapshot کامل
-#define BED_SNAPSHOT_MIN_PERIOD_MS   200U
-
+#define SUMMARY_FIXED_PERIOD_MS   1000U
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -85,7 +84,16 @@ static RecommendationResult_t g_recommendation;
 // جلوگیری از spam شدن UART
 static uint32_t last_debug_print = 0;
 
+// === exposure tracking (seconds above threshold) ===
+static uint32_t g_sacrum_exposure_s = 0U;
+static uint32_t g_heels_exposure_s = 0U;
+static uint32_t g_shoulders_exposure_s = 0U;
 
+// === exposure threshold used by MCU summary ===
+static const uint8_t g_pressure_exposure_threshold = 32U;
+
+// === last time exposure counters were updated ===
+static uint32_t g_last_exposure_update_ms = 0U;
 
 
 
@@ -123,6 +131,7 @@ void UartTestTask(void *argument);
 static uint8_t BuildNodeFlags(uint8_t node);   // ===  build UART flags for one node ===
 static uint8_t SensorStatus_IsValid(uint8_t status);   // validity policy for one sensor status ===
 static uint8_t SensorStatus_GetConfidence(uint8_t status);   // map sensor status to confidence ===
+static void UpdateExposureCounters(const ZoneAnalysisResult_t *zone_res, uint32_t now_ms);
 /* USER CODE END FunctionPrototypes */
 
 void StartDefaultTask(void *argument);
@@ -252,6 +261,7 @@ void StartDefaultTask(void *argument)
 	           (unsigned long)SerialLink_TxDropped());
 	#endif
 
+
 	    // === اگر یک snapshot کامل از تخت آماده شده ===
 	   /* if (bed_snapshot_ready != 0U)
 	    {
@@ -280,7 +290,7 @@ void CanRxTask(void *argument)
 
   CanRxMsg m;
   // === آخرین زمان enqueue شدن snapshot کامل تخت ===
-  static uint32_t last_bed_snapshot_tx_ms = 0U;
+  static uint32_t last_summary_tx_ms = 0U;
 
   // === [CONFIG] حداکثر فاصله مجاز بین chunk های یک assemble ===
   // اگر 4 فریم یک نود با فاصله خیلی زیاد برسند، assemble ریست می‌شود
@@ -311,6 +321,14 @@ void CanRxTask(void *argument)
     if (m.h.DLC != 8U)           continue;
 
     const uint16_t id = (uint16_t)m.h.StdId;
+
+   /* printf("CAN RX id=0x%03X dlc=%u data=%02X %02X %02X %02X %02X %02X %02X %02X\r\n",
+           (unsigned int)id,
+           (unsigned int)m.h.DLC,
+           (unsigned int)m.d[0], (unsigned int)m.d[1],
+           (unsigned int)m.d[2], (unsigned int)m.d[3],
+           (unsigned int)m.d[4], (unsigned int)m.d[5],
+           (unsigned int)m.d[6], (unsigned int)m.d[7]);*/
 
     // === [FILTER] فقط ID های بازه سنسورها ===
     if (id < (uint16_t)BASE_ID)  continue;
@@ -404,6 +422,12 @@ void CanRxTask(void *argument)
       // ===  update bed cycle sync state ===
       BedSync_OnNodeUpdated(node);
 
+
+     /* printf("AFTER BEDSYNC: cycle=%lu ready=%u mask=0x%08lX\r\n",
+             (unsigned long)bed_cycle,
+             (unsigned int)bed_snapshot_ready,
+             (unsigned long)bed_sync_mask);*/
+
       // === اگر یک snapshot کامل از تخت آماده شده ===
       // این flag توسط BedSync تنظیم می‌شود
 
@@ -432,6 +456,42 @@ void CanRxTask(void *argument)
                              &g_alert,
                              &g_movement,
                              &g_recommendation);
+
+          // === derived summary fields for analytics/trend ===
+          uint16_t uptime_s = (uint16_t)(now / 1000U);
+
+          uint8_t shoulders_avg = (uint8_t)(
+              ((uint16_t)g_zone_result.zone[ZONE_LEFT_SHOULDER].avg +
+               (uint16_t)g_zone_result.zone[ZONE_RIGHT_SHOULDER].avg) / 2U);
+
+          uint8_t shoulders_peak =
+              (g_zone_result.zone[ZONE_LEFT_SHOULDER].peak >
+               g_zone_result.zone[ZONE_RIGHT_SHOULDER].peak)
+              ? g_zone_result.zone[ZONE_LEFT_SHOULDER].peak
+              : g_zone_result.zone[ZONE_RIGHT_SHOULDER].peak;
+
+          UpdateExposureCounters(&g_zone_result, now);
+          uint8_t zones_valid_mask = 0U;
+
+          if (g_zone_result.zone[ZONE_SACRUM].valid_cells > 0U)
+            zones_valid_mask |= (1U << 0);
+
+          if (g_zone_result.zone[ZONE_LEFT_HEEL].valid_cells > 0U)
+            zones_valid_mask |= (1U << 1);
+
+          if (g_zone_result.zone[ZONE_RIGHT_HEEL].valid_cells > 0U)
+            zones_valid_mask |= (1U << 2);
+
+          if (g_zone_result.zone[ZONE_LEFT_SHOULDER].valid_cells > 0U)
+            zones_valid_mask |= (1U << 3);
+
+          if (g_zone_result.zone[ZONE_RIGHT_SHOULDER].valid_cells > 0U)
+            zones_valid_mask |= (1U << 4);
+
+          // bit0 = raw averages
+          // bit1 = smoothed averages
+          // bit2 = exposure counters active
+          uint8_t summary_flags = 0x05U;
 
 
 
@@ -477,7 +537,7 @@ void CanRxTask(void *argument)
               #endif
           }
 
-          if ((now - last_bed_snapshot_tx_ms) >= BED_SNAPSHOT_MIN_PERIOD_MS)
+          if ((now - last_summary_tx_ms) >= SUMMARY_FIXED_PERIOD_MS)
           {
               uint16_t time_since_last_movement_s = 0xFFFFU;
 
@@ -518,6 +578,7 @@ void CanRxTask(void *argument)
 
                           if (SerialLink_SendSummary_Async(
                                   frame_id,
+                                  uptime_s,
                                   g_risk_result.score,
                                   g_risk_result.level,
                                   g_movement.detected,
@@ -531,13 +592,24 @@ void CanRxTask(void *argument)
                                   g_zone_result.zone[ZONE_SACRUM].avg,
                                   g_zone_result.zone[ZONE_SACRUM].peak,
                                   g_zone_result.zone[ZONE_LEFT_HEEL].avg,
-                                  g_zone_result.zone[ZONE_RIGHT_HEEL].avg) == pdPASS)
+                                  g_zone_result.zone[ZONE_RIGHT_HEEL].avg,
+                                  shoulders_avg,
+                                  shoulders_peak,
+							        g_pressure_exposure_threshold,
+							        (uint16_t)g_sacrum_exposure_s,
+							        (uint16_t)g_heels_exposure_s,
+							        (uint16_t)g_shoulders_exposure_s,
+							        zones_valid_mask,
+							        summary_flags) == pdPASS)
                           {
                               #if DEBUG_SUMMARY
                               printf("ENQ: SUMMARY ok\r\n");
                               #endif
 
-                              last_bed_snapshot_tx_ms = now;
+                              if (last_summary_tx_ms == 0U)
+                                last_summary_tx_ms = now;
+                              else
+                                last_summary_tx_ms += SUMMARY_FIXED_PERIOD_MS;
                           }
                           else
                           {
@@ -569,80 +641,6 @@ void CanRxTask(void *argument)
           }
 
 
-
-
-          // === فقط اگر از آخرین ارسال snapshot کامل زمان کافی گذشته باشد ===
-          if ((now - last_bed_snapshot_tx_ms) >= BED_SNAPSHOT_MIN_PERIOD_MS)
-          {
-              // === یک شناسه جدید برای این فریم UI بساز ===
-              // هر سه packet زیر باید همین شناسه مشترک را داشته باشند
-              frame_id = ++ui_frame_id;
-
-              // === اول snapshot فشار تخت ===
-
-              // === calculate time since last movement in seconds ===
-              // اگر هنوز هیچ حرکتی ثبت نشده باشد، مقدار 0xFFFF بفرست
-              uint16_t time_since_last_movement_s = 0xFFFFU;
-
-              if (g_movement.last_movement_ms != 0U)
-              {
-                  uint32_t dt_ms = now - g_movement.last_movement_ms;
-                  uint32_t dt_s = dt_ms / 1000U;
-
-                  if (dt_s > 0xFFFFU)
-                      dt_s = 0xFFFFU;
-
-                  time_since_last_movement_s = (uint16_t)dt_s;
-              }
-
-              // === enqueue full UI frame ===
-              if (SerialLink_SendBedSnapshot_Async(frame_id) == pdPASS)
-              {
-                  if (SerialLink_SendBedStatus_Async(frame_id) == pdPASS)
-                  {
-                      if (SerialLink_SendNodeHealth_Async(frame_id) == pdPASS)
-                      {
-                          // === enqueue compact summary packet ===
-                          if (SerialLink_SendSummary_Async(
-                                  frame_id,
-                                  g_risk_result.score,
-                                  g_risk_result.level,
-                                  g_movement.detected,
-                                  time_since_last_movement_s,
-                                  g_alert.active,
-                                  g_alert.type,
-                                  g_alert.severity,
-                                  (uint16_t)g_alert.duration_s,
-                                  g_recommendation.code,
-                                  g_recommendation.priority,
-                                  g_zone_result.zone[ZONE_SACRUM].avg,
-                                  g_zone_result.zone[ZONE_SACRUM].peak,
-                                  g_zone_result.zone[ZONE_LEFT_HEEL].avg,
-                                  g_zone_result.zone[ZONE_RIGHT_HEEL].avg) == pdPASS)
-                          {
-                              // === فقط وقتی کل UI frame enqueue شد، زمان ثبت شود ===
-                              last_bed_snapshot_tx_ms = now;
-                          }
-                          else
-                          {
-                              // printf("SUMMARY enqueue failed\r\n");
-                          }
-                      }
-                      else
-                      {
-                          // printf("NODE HEALTH enqueue failed\r\n");
-                      }
-                  }
-                  else
-                  {
-                      // printf("BED STATUS enqueue failed\r\n");
-                  }
-              }
-              else
-              {
-                  // printf("BED SNAPSHOT enqueue failed\r\n");
-              }
-          }
 
           // === این snapshot پردازش شد ===
           bed_snapshot_ready = 0U;
@@ -683,7 +681,12 @@ void CanRxTask(void *argument)
                                         uart_flags,
                                         sensors32[node]) != pdPASS)
         {
-          tx_drop++;
+            tx_drop++;
+            printf("ENQ NODE32 FAIL\r\n");
+        }
+        else
+        {
+            printf("ENQ NODE32 OK\r\n");
         }
       }
     }
@@ -764,7 +767,44 @@ static uint8_t SensorStatus_GetConfidence(uint8_t status)
   }
 }
 /*--------------------------------------------------------------------------------*/
+static void UpdateExposureCounters(const ZoneAnalysisResult_t *zone_res, uint32_t now_ms)
+{
+  if (zone_res == 0)
+    return;
 
+  if (g_last_exposure_update_ms == 0U)
+  {
+    g_last_exposure_update_ms = now_ms;
+    return;
+  }
+
+  uint32_t dt_ms = now_ms - g_last_exposure_update_ms;
+
+  // فقط وقتی حداقل 1 ثانیه گذشته باشد، counterها را جلو ببر
+  if (dt_ms < 1000U)
+    return;
+
+  uint32_t dt_s = dt_ms / 1000U;
+  g_last_exposure_update_ms += dt_s * 1000U;
+
+  uint8_t sacrum_avg = zone_res->zone[ZONE_SACRUM].avg;
+  uint8_t heel_left_avg = zone_res->zone[ZONE_LEFT_HEEL].avg;
+  uint8_t heel_right_avg = zone_res->zone[ZONE_RIGHT_HEEL].avg;
+  uint8_t shoulders_left_avg = zone_res->zone[ZONE_LEFT_SHOULDER].avg;
+  uint8_t shoulders_right_avg = zone_res->zone[ZONE_RIGHT_SHOULDER].avg;
+
+  uint8_t heels_avg = (uint8_t)(((uint16_t)heel_left_avg + (uint16_t)heel_right_avg) / 2U);
+  uint8_t shoulders_avg = (uint8_t)(((uint16_t)shoulders_left_avg + (uint16_t)shoulders_right_avg) / 2U);
+
+  if (sacrum_avg >= g_pressure_exposure_threshold)
+    g_sacrum_exposure_s += dt_s;
+
+  if (heels_avg >= g_pressure_exposure_threshold)
+    g_heels_exposure_s += dt_s;
+
+  if (shoulders_avg >= g_pressure_exposure_threshold)
+    g_shoulders_exposure_s += dt_s;
+}
 /*--------------------------------------------------------------------------------*/
 
 void vApplicationMallocFailedHook(void)
