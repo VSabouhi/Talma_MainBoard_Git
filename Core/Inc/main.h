@@ -293,6 +293,11 @@ void Error_Handler(void);
 #define DEBUG_RECOMMENDATION     0
 #define DEBUG_SUMMARY            1
 
+// === motor bring-up test switch ===
+// 0: disabled
+// 1: run hardcoded motor tests once
+#define ENABLE_MOTOR_TEST_TASK   0
+
 // === debug print throttle period ===
 // جلوگیری از شلوغ شدن UART debug
 #define DEBUG_PRINT_PERIOD_MS    1000U

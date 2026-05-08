@@ -43,6 +43,9 @@
 #include "alert_engine.h"
 #include "recommendation.h"   // تولید توصیه عملی
 #include "app_config.h"
+#include "motor_scheduler.h"
+#include "motor_test.h"
+#include "therapy_engine.h"   // تصمیم سطح بالا برای therapy و ارسال به motor_scheduler
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -54,10 +57,6 @@ typedef StaticTask_t osStaticThreadDef_t;
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-// === test feature switch ===
-// 0: disable periodic test command task
-// 1: enable periodic test command task
-//#define ENABLE_NODE1_TEST_CMD_TASK   0,
 
 // === minimum time gap between full-bed snapshots sent to UI ===
 // جلوگیری از ارسال بیش از حد snapshot کامل
@@ -80,6 +79,9 @@ static RiskResult_t g_risk_result;
 static AlertResult_t g_alert;
 // === recommendation result ===
 static RecommendationResult_t g_recommendation;
+// === global therapy/intervention planner state ===
+// app_intervention.c برای approve/reject به این state دسترسی دارد.
+TherapyEngineState_t g_therapy;
 // === debug print throttle ===
 // جلوگیری از spam شدن UART
 static uint32_t last_debug_print = 0;
@@ -105,8 +107,14 @@ extern volatile uint32_t rx_dropped;
 
 osThreadId_t uartTestTaskHandle;
 osThreadId_t serialTxTaskHandle;
+// === SerialLink RX task handle ===
+// دریافت commandهای UI روی UART
+osThreadId_t serialRxTaskHandle;
 osThreadId_t canTxTaskHandle;
 osThreadId_t nodeMonitorTaskHandle;   // === task handle for node state monitor ===
+
+osThreadId_t motorSchedulerTaskHandle;
+osThreadId_t motorTestTaskHandle;
 /* USER CODE END Variables */
 /* Definitions for defaultTask */
 osThreadId_t defaultTaskHandle;
@@ -152,6 +160,9 @@ void MX_FREERTOS_Init(void) {
   /* USER CODE BEGIN Init */
 	CanRtosRx_Init();
 	CanRtosTx_Init();
+	// === init motor scheduler queue/state ===
+	// این لایه فرمان‌های موتور را queue می‌کند و با pacing امن روی CAN TX می‌فرستد.
+	MotorScheduler_Init();
 	UartPkt_Init();
 	configASSERT(qCanRx != NULL);
 
@@ -160,16 +171,23 @@ void MX_FREERTOS_Init(void) {
 	ZoneAnalysis_Init();
 	Movement_Init();
 	AlertEngine_Init();
+	// === initialize therapy engine ===
+	// therapy فعلاً disabled است تا حرکت خودکار بدون تصمیم ما اجرا نشود.
+	TherapyEngine_Init(&g_therapy);
 
-	/*const osThreadAttr_t uartTestTask_attributes = {
-	  .name = "uartTestTask",
-	  .stack_size = 512 * 4,
-	  .priority = (osPriority_t) osPriorityNormal,
-	};*/
-
+	// DEBUG:
+	// فقط برای تست planner.
+	// این فعال‌سازی موتور را حرکت نمی‌دهد؛ فقط اجازه ساخت pending_plan می‌دهد.
+	TherapyEngine_SetEnabled(&g_therapy, 1U);
 
 	const osThreadAttr_t serialTxTask_attributes = {
 	  .name = "serialTxTask",
+	  .stack_size = 512 * 4,
+	  .priority = (osPriority_t) osPriorityNormal,
+	};
+
+	const osThreadAttr_t serialRxTask_attributes = {
+	  .name = "serialRxTask",
 	  .stack_size = 512 * 4,
 	  .priority = (osPriority_t) osPriorityNormal,
 	};
@@ -179,6 +197,20 @@ void MX_FREERTOS_Init(void) {
 	  .stack_size = 512 * 4,
 	  .priority = (osPriority_t) osPriorityNormal,
 	};
+
+	const osThreadAttr_t motorSchedulerTask_attributes = {
+	  .name = "motorSched",
+	  .stack_size = 512 * 4,
+	  .priority = (osPriority_t) osPriorityNormal,
+	};
+
+	#if ENABLE_MOTOR_TEST_TASK
+		const osThreadAttr_t motorTestTask_attributes = {
+		  .name = "motorTest",
+		  .stack_size = 512 * 4,
+		  .priority = (osPriority_t) osPriorityLow,
+		};
+	#endif
 
 	#if ENABLE_NODE1_TEST_CMD_TASK
 		const osThreadAttr_t node1CmdTask_attributes = {
@@ -219,10 +251,24 @@ void MX_FREERTOS_Init(void) {
   /* creation of v_CanRxTask */
   v_CanRxTaskHandle = osThreadNew(CanRxTask, NULL, &v_CanRxTask_attributes);
   canTxTaskHandle = osThreadNew(CanTxTask, NULL, &canTxTask_attributes);
+
+  // === motor command scheduler task ===
+  // همه commandهای موتور از این task عبور می‌کنند تا interleave نشوند.
+  motorSchedulerTaskHandle = osThreadNew(MotorScheduler_Task, NULL, &motorSchedulerTask_attributes);
+
+  #if ENABLE_MOTOR_TEST_TASK
+  // === temporary hardcoded motor tests ===
+  // بعد از bring-up موفق، ENABLE_MOTOR_TEST_TASK را 0 کن.
+  motorTestTaskHandle = osThreadNew(MotorTest_Task, NULL, &motorTestTask_attributes);
+  #endif
   /* USER CODE BEGIN RTOS_THREADS */
 
   //uartTestTaskHandle = osThreadNew(UartTestTask, NULL, &uartTestTask_attributes);
   serialTxTaskHandle  = osThreadNew(SerialLink_TxTask, NULL, &serialTxTask_attributes);
+  // === create SerialLink RX task ===
+  // approve/reject commandها از UI
+  serialRxTaskHandle = osThreadNew(SerialLink_RxTask, NULL, &serialRxTask_attributes);
+
 	#if ENABLE_NODE1_TEST_CMD_TASK
 	  // === create periodic test command task only when enabled ===
 	  osThreadNew(Node1CmdTask, NULL, &node1CmdTask_attributes);
@@ -257,7 +303,7 @@ void StartDefaultTask(void *argument)
   /* Infinite loop */
 	for(;;)
 	{
-	    HAL_GPIO_TogglePin(LED1_GPIO_Port, LED1_Pin);
+	 //   HAL_GPIO_TogglePin(LED1_GPIO_Port, LED1_Pin);
 
 	#if DEBUG_SERIAL_TX_STATS
 	    printf("SerialLink dropped=%lu\r\n",
@@ -459,6 +505,37 @@ void CanRxTask(void *argument)
                              &g_alert,
                              &g_movement,
                              &g_recommendation);
+
+          // === build intervention plan only ===
+          // هیچ حرکت موتوری اینجا انجام نمی‌شود.
+          // اگر شرایط خطر وجود داشته باشد، فقط pending_plan برای UI ساخته می‌شود.
+          TherapyEngine_Run(&g_therapy,
+                            &g_zone_result,
+                            &g_movement,
+                            &g_risk_result,
+                            &g_alert,
+                            &g_recommendation,
+                            now);
+          // === send pending intervention plan only once ===
+          // یک plan نباید در هر snapshot دوباره برای UI ارسال شود.
+          {
+            TherapyPlan_t *p =
+                (TherapyPlan_t *)TherapyEngine_GetPendingPlan(&g_therapy);
+
+            if (p != 0)
+            {
+              if (p->ui_sent == 0U)
+              {
+                if (SerialLink_SendInterventionPlan_Async(p) == pdPASS)
+                {
+                  p->ui_sent = 1U;
+
+                  printf("THERAPY PLAN: delivered to UI id=%lu\r\n",
+                         (unsigned long)p->plan_id);
+                }
+              }
+            }
+          }
 
           // === derived summary fields for analytics/trend ===
           uint16_t uptime_s = (uint16_t)(now / 1000U);
@@ -867,7 +944,7 @@ void UartTestTask(void *argument)
 /*--------------------------------------------------------------------------------*/
 
 
-void Node1CmdTask(void *argument)
+/*void Node1CmdTask(void *argument)
 {
   (void)argument;
 
@@ -886,7 +963,7 @@ void Node1CmdTask(void *argument)
 
     osDelay(500);
   }
-}
+}*/
 
 /*--------------------------------------------------------------------------------*/
 

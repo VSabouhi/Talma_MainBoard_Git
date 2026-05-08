@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include "FreeRTOS.h"
 #include "queue.h"
+#include "therapy_engine.h"
 /*----------------------------------------------------------------------------*/
 
 // === serial link message types ===
@@ -14,6 +15,7 @@
 #define SL_MSG_TYPE_BED_STATUS     3U   //
 #define SL_MSG_TYPE_NODE_HEALTH    4U   // وضعیت همه نودهاپیام نقشه وضعیت کل تخت
 #define SL_MSG_TYPE_SUMMARY        5U   // summary packet for UI
+#define SL_MSG_TYPE_INTERVENTION_PLAN  6U
 /*----------------------------------------------------------------------------*/
 // === node32 payload ===
 // payload مربوط به یک نود (32 سنسور)
@@ -74,6 +76,11 @@ typedef struct {
 	  uint8_t summary_flags;
 } SL_SummaryPayload;
 
+// === intervention plan payload ===
+// کل plan کپی می‌شود تا هنگام ارسال از queue پایدار باشد.
+typedef struct {
+  TherapyPlan_t plan;
+} SL_InterventionPlanPayload;
 
 // === generic serial link message ===
 // این پیام می‌تواند یکی از چند نوع خروجی UI باشد
@@ -87,6 +94,7 @@ typedef struct {
     SL_BedStatusPayload status;    // status کل تخت
     SL_NodeHealthPayload health;   // وضعیت همه نودها
     SL_SummaryPayload summary;
+    SL_InterventionPlanPayload intervention;
   } payload;
 
 } SL_Msg;
@@ -134,7 +142,11 @@ extern QueueHandle_t qSerialTx;
 void SerialLink_Init(void);
 BaseType_t SerialLink_SendNode32_Async(uint8_t node, uint16_t cycle, uint8_t flags, const uint8_t s32[32]);
 void SerialLink_TxTask(void *argument);
+// === UI RX task ===
+// دریافت approve/reject و commandهای آینده از UI
+void SerialLink_RxTask(void *argument);
 uint32_t SerialLink_TxDropped(void);
+BaseType_t SerialLink_SendInterventionPlan_Async(const TherapyPlan_t *plan);
 /*----------------------------------------------------------------------------*/
 
 

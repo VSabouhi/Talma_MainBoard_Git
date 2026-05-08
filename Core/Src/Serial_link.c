@@ -6,7 +6,9 @@
 #include "bed_model.h"
 #include "node_state.h"
 #include  <stdio.h>
-
+#include "usart.h"
+#include "cmsis_os.h"
+#include "app_intervention.h"
 /*----------------------------------------------------------------------------*/
 
 
@@ -190,6 +192,15 @@ void SerialLink_TxTask(void *argument)
 				  m.payload.summary.summary_flags);
 
           break;
+        case SL_MSG_TYPE_INTERVENTION_PLAN:
+
+          printf("SERIAL LINK: send intervention plan id=%lu motors=%u\r\n",
+                 (unsigned long)m.payload.intervention.plan.plan_id,
+                 (unsigned)m.payload.intervention.plan.motor_count);
+
+          UartPkt_SendInterventionPlan(&m.payload.intervention.plan);
+
+          break;
 
         default:
           // === نوع پیام ناشناخته: فعلاً نادیده بگیر ===
@@ -297,7 +308,138 @@ BaseType_t SerialLink_SendSummary_Async(uint16_t frame_id,
   return pdPASS;
 }
 /*----------------------------------------------------------------------------*/
+/*----------------------------------------------------------------------------*/
+BaseType_t SerialLink_SendInterventionPlan_Async(const TherapyPlan_t *plan)
+{
+  if (plan == 0)
+    return pdFAIL;
 
+  if (plan->valid == 0U)
+    return pdFAIL;
+
+  SL_Msg m;
+
+  // === این پیام از نوع intervention plan است ===
+  // plan کامل کپی می‌شود تا در queue پایدار بماند.
+  m.type = SL_MSG_TYPE_INTERVENTION_PLAN;
+  m.payload.intervention.plan = *plan;
+
+  if (qSerialTx == NULL) return pdFAIL;
+
+  if (xQueueSend(qSerialTx, &m, 0) != pdPASS) {
+
+    // === اگر صف پر بود: قدیمی‌ترین پیام حذف شود و یک بار retry شود ===
+    SL_Msg dummy;
+    xQueueReceive(qSerialTx, &dummy, 0);
+
+    if (xQueueSend(qSerialTx, &m, 0) != pdPASS) {
+      sl_tx_dropped++;
+      return pdFAIL;
+    }
+  }
+
+  return pdPASS;
+}
+/*----------------------------------------------------------------------------*/
+/*----------------------------------------------------------------------------*/
+// === SerialLink RX task ===
+// دریافت packetهای approve/reject از UI روی همان UART لینک UI.
+//
+// Packet:
+// AA 55 TYPE SEQ planL planH 12 34
+//
+// TYPE:
+// 0x52 approve
+// 0x53 reject
+void SerialLink_RxTask(void *argument)
+{
+  (void)argument;
+
+  uint8_t b = 0U;
+  uint8_t pkt[8];
+  uint8_t idx = 0U;
+  uint32_t plan_id = 0U;
+
+  printf("SerialLink_RxTask started\r\n");
+
+  for (;;)
+  {
+	  // DEBUG:
+	  // timeout طولانی‌تر برای تست packet دستی از serial tool
+	  if (HAL_UART_Receive(&huart4, &b, 1U, 100) != HAL_OK)
+    {
+      osDelay(1);
+      continue;
+    }
+
+
+
+    if (idx == 0U)
+    {
+      if (b != PKT_SOF0)
+        continue;
+
+      pkt[idx++] = b;
+      continue;
+    }
+
+    if (idx == 1U)
+    {
+      if (b != PKT_SOF1)
+      {
+        idx = 0U;
+        continue;
+      }
+
+      pkt[idx++] = b;
+      continue;
+    }
+
+    pkt[idx++] = b;
+
+    if (idx < 8U)
+      continue;
+
+    idx = 0U;
+
+    // DEBUG:
+    // فقط وقتی 8 بایت کامل دریافت شد چاپ می‌کنیم.
+    printf("UI RX PKT: %02X %02X %02X %02X %02X %02X %02X %02X\r\n",
+           pkt[0], pkt[1], pkt[2], pkt[3],
+           pkt[4], pkt[5], pkt[6], pkt[7]);
+
+    if (pkt[6] != PKT_CRC0) continue;
+    if (pkt[7] != PKT_CRC1) continue;
+
+    plan_id =
+        ((uint32_t)pkt[4]) |
+        (((uint32_t)pkt[5]) << 8);
+
+    if (pkt[2] == PKT_TYPE_INTERVENTION_APPROVE)
+    {
+      printf("UI CMD: approve id=%lu\r\n",
+             (unsigned long)plan_id);
+
+      // === execute only after UI approval ===
+      // مسئولیت action از مسیر UI/پرستار وارد سیستم می‌شود.
+      AppIntervention_Approve(plan_id);
+    }
+    else if (pkt[2] == PKT_TYPE_INTERVENTION_REJECT)
+    {
+      printf("UI CMD: reject id=%lu\r\n",
+             (unsigned long)plan_id);
+
+      // === reject pending intervention plan ===
+      AppIntervention_Reject(plan_id);
+    }
+    else
+    {
+      printf("UI CMD: unknown type=0x%02X\r\n", pkt[2]);
+    }
+  }
+}
+/*----------------------------------------------------------------------------*/
+/*----------------------------------------------------------------------------*/
 /*----------------------------------------------------------------------------*/
 
 /*----------------------------------------------------------------------------*/

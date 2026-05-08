@@ -64,7 +64,7 @@ void CanRtosRx_OnFifo0Pending(CAN_HandleTypeDef *hcan)
     if (HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &m.h, m.d) != HAL_OK)
       break;
 
-    HAL_GPIO_TogglePin(LED2_GPIO_Port, LED2_Pin);
+  //  HAL_GPIO_TogglePin(LED2_GPIO_Port, LED2_Pin);
 
     if (qCanRx)
     {

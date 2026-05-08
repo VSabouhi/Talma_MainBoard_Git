@@ -10,6 +10,7 @@
 
 
 /*----------------------------------------------------------------------------*/
+
 #define CMD_BASE_ID  0x300
 /*----------------------------------------------------------------------------*/
 
@@ -26,6 +27,13 @@ typedef enum {
 /*----------------------------------------------------------------------------*/
 
 /*----------------------------------------------------------------------------*/
+// NOTE:
+// CanCmd_SendToNode() is the legacy/general node command path.
+// It uses 0x300 + node.
+//
+// Motor control MUST NOT use this API.
+// Motor control uses motor_scheduler -> motor_can -> 0x400 + BOARD_ID.
+
 BaseType_t CanCmd_SendToNode(uint8_t node, uint8_t cmd,
                             uint8_t a0, uint8_t a1, uint8_t a2,
                             uint32_t param32)

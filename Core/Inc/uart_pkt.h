@@ -4,6 +4,7 @@
 /*----------------------------------------------------------------------------*/
 #include "main.h"
 #include <stdint.h>
+#include "therapy_engine.h"
 /*----------------------------------------------------------------------------*/
 /*  PKT_TYPE_SUMMARY = 0x40
 [0]  SOF0
@@ -58,6 +59,13 @@
 #define PKT_TYPE_NODE_HEALTH   0x30   // وضعیت همه نودهانقشه وضعیت کل تخت
 #define PKT_TYPE_SUMMARY       0x40   // summary packet for UI
 #define PKT_HAS_FRAME_ID   1
+// === intervention planner packet ===
+// پیشنهاد intervention برای UI؛ اجرای موتور فقط بعد از approval مجاز است.
+#define PKT_TYPE_INTERVENTION_PLAN   0x50
+// === UI -> Main intervention control ===
+// UI/پرستار تصمیم نهایی اجرای plan را می‌گیرد.
+#define PKT_TYPE_INTERVENTION_APPROVE   0x52
+#define PKT_TYPE_INTERVENTION_REJECT    0x53
 /*----------------------------------------------------------------------------*/
 // === ارسال snapshot کامل تخت (32×16) ===
 void UartPkt_SendBedSnapshot(uint16_t frame_id,
@@ -114,8 +122,17 @@ void UartPkt_SendNodeHealth(uint16_t bed_cycle,
 /*----------------------------------------------------------------------------*/
 void UartPkt_Init(void);
 /*----------------------------------------------------------------------------*/
-
+// === ارسال plan پیشنهادی به UI ===
+// این packet فقط proposal است و هیچ motor command اجرا نمی‌کند.
+void UartPkt_SendInterventionPlan(const TherapyPlan_t *p);
 /*----------------------------------------------------------------------------*/
+uint8_t UartPkt_ParseInterventionApprove(const uint8_t *pkt,
+                                         uint16_t len,
+                                         uint32_t *plan_id);
 
+uint8_t UartPkt_ParseInterventionReject(const uint8_t *pkt,
+                                        uint16_t len,
+                                        uint32_t *plan_id);
+/*----------------------------------------------------------------------------*/
 
 #endif /* INC_UART_PKT_H_ */

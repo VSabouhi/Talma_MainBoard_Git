@@ -31,6 +31,7 @@ void CanRtosTx_Init(void)
 /*----------------------------------------------------------*/
 uint32_t CanRtosTx_Dropped(void) { return tx_dropped; }
 /*----------------------------------------------------------*/
+
 BaseType_t CanRtosTx_SendStd_Async(uint16_t stdId, const uint8_t data[8], uint8_t dlc)
 {
   if (!qCanTx) return pdFAIL;
@@ -39,18 +40,23 @@ BaseType_t CanRtosTx_SendStd_Async(uint16_t stdId, const uint8_t data[8], uint8_
   CanTxMsg m;
   m.stdId = stdId;
   m.dlc   = dlc;
+
   if (data) memcpy(m.d, data, dlc);
   if (dlc < 8U) memset(&m.d[dlc], 0, 8U - dlc);
 
   if (xQueueSend(qCanTx, &m, 0) != pdPASS) {
-    // drop oldest (مثل SerialLink)
+    // NOTE:
+    // TX queue overflow policy: drop oldest, then retry once.
+    // This keeps new command traffic alive under burst conditions.
     CanTxMsg dummy;
     xQueueReceive(qCanTx, &dummy, 0);
+
     if (xQueueSend(qCanTx, &m, 0) != pdPASS) {
       tx_dropped++;
       return pdFAIL;
     }
   }
+
   return pdPASS;
 }
 /*----------------------------------------------------------*/

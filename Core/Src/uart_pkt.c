@@ -10,6 +10,9 @@ static uint8_t pkt_bed_snapshot[522];
 static uint8_t pkt_bed_status[522];
 static uint8_t pkt_node_health[26];
 static uint8_t pkt_summary[37];
+// === intervention plan packet buffer ===
+// حداکثر 8 موتور × 3 بایت + header/status fields + CRC
+static uint8_t pkt_intervention_plan[40];
 /*----------------------------------------------------------------------------*/
 static uint8_t g_seq = 0;
 /*----------------------------------------------------------------------------*/
@@ -290,4 +293,126 @@ void UartPkt_SendSummary(uint16_t frame_id,
   HAL_UART_Transmit(&huart4, pkt, 37, 100);
 }
 /*----------------------------------------------------------------------------*/
+/*----------------------------------------------------------------------------*/
+// === ارسال intervention plan به UI ===
+// این packet فقط پیشنهاد است؛ اجرای موتور انجام نمی‌دهد.
+//
+// Packet 0x50:
+// [0]  SOF0
+// [1]  SOF1
+// [2]  TYPE = 0x50
+// [3]  SEQ
+// [4]  plan_id L
+// [5]  plan_id H
+// [6]  status
+// [7]  plan type
+// [8]  target zone
+// [9]  risk score
+// [10] risk level
+// [11] reason code
+// [12] board id
+// [13] motor count
+// [14..] repeated: motor_idx, delta_L, delta_H
+// [last-2] CRC0
+// [last-1] CRC1
+void UartPkt_SendInterventionPlan(const TherapyPlan_t *p)
+{
+  if (p == 0) return;
+  if (p->valid == 0U) return;
 
+  uint8_t *pkt = pkt_intervention_plan;
+  uint16_t k = 0U;
+
+  pkt[k++] = PKT_SOF0;
+  pkt[k++] = PKT_SOF1;
+  pkt[k++] = PKT_TYPE_INTERVENTION_PLAN;
+  pkt[k++] = g_seq++;
+
+  pkt[k++] = (uint8_t)(p->plan_id & 0xFFU);
+  pkt[k++] = (uint8_t)((p->plan_id >> 8) & 0xFFU);
+
+  pkt[k++] = p->status;
+  pkt[k++] = p->type;
+  pkt[k++] = p->target_zone;
+
+  pkt[k++] = p->risk_score;
+  pkt[k++] = p->risk_level;
+  pkt[k++] = p->reason_code;
+
+  pkt[k++] = p->board_id;
+  pkt[k++] = p->motor_count;
+
+  for (uint8_t i = 0U; i < p->motor_count; i++)
+  {
+    pkt[k++] = p->motors[i].idx;
+    pkt[k++] = (uint8_t)((uint16_t)p->motors[i].delta & 0xFFU);
+    pkt[k++] = (uint8_t)(((uint16_t)p->motors[i].delta >> 8) & 0xFFU);
+  }
+
+  pkt[k++] = PKT_CRC0;
+  pkt[k++] = PKT_CRC1;
+
+  // NOTE:
+  // پروژه فعلی همه packetهای UI را روی huart4 می‌فرستد.
+  // huart1 در این پروژه برای UI تعریف نشده است.
+  HAL_UART_Transmit(&huart4, pkt, k, 100);
+}
+/*----------------------------------------------------------------------------*/
+// === UI intervention approval packet ===
+// Packet:
+// AA 55 52 seq planL planH crc0 crc1
+uint8_t UartPkt_ParseInterventionApprove(const uint8_t *pkt,
+                                         uint16_t len,
+                                         uint32_t *plan_id)
+{
+  if ((pkt == 0) || (plan_id == 0))
+    return 0U;
+
+  if (len < 8U)
+    return 0U;
+
+  if (pkt[0] != PKT_SOF0) return 0U;
+  if (pkt[1] != PKT_SOF1) return 0U;
+
+  if (pkt[2] != PKT_TYPE_INTERVENTION_APPROVE)
+    return 0U;
+
+  *plan_id =
+      ((uint32_t)pkt[4]) |
+      (((uint32_t)pkt[5]) << 8);
+
+  return 1U;
+}
+/*----------------------------------------------------------------------------*/
+// === UI intervention reject packet ===
+// Packet:
+// AA 55 53 seq planL planH crc0 crc1
+uint8_t UartPkt_ParseInterventionReject(const uint8_t *pkt,
+                                        uint16_t len,
+                                        uint32_t *plan_id)
+{
+  if ((pkt == 0) || (plan_id == 0))
+    return 0U;
+
+  if (len < 8U)
+    return 0U;
+
+  if (pkt[0] != PKT_SOF0) return 0U;
+  if (pkt[1] != PKT_SOF1) return 0U;
+
+  if (pkt[2] != PKT_TYPE_INTERVENTION_REJECT)
+    return 0U;
+
+  *plan_id =
+      ((uint32_t)pkt[4]) |
+      (((uint32_t)pkt[5]) << 8);
+
+  return 1U;
+}
+/*----------------------------------------------------------------------------*/
+
+/*----------------------------------------------------------------------------*/
+
+/*----------------------------------------------------------------------------*/
+
+/*----------------------------------------------------------------------------*/
