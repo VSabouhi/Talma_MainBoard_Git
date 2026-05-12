@@ -14,8 +14,27 @@ void MotorTest_Task(void *argument)
 {
   (void)argument;
 
-  // کمی صبر برای بالا آمدن CAN و Node
+
   osDelay(2000);
+
+  printf("MOTOR TEST: home all before vector\r\n");
+  MotorScheduler_EnqueueHomeAll(MOTOR_TEST_BOARD_ID);
+  osDelay(3000);
+
+  printf("MOTOR TEST: vector only 0=100, 1=200, 2=150\r\n");
+
+  MotorVectorItem_t v[3] = {
+    { .idx = 0U, .delta = 100 },
+    { .idx = 1U, .delta = 200 },
+    { .idx = 2U, .delta = 150 },
+  };
+
+  MotorScheduler_EnqueueVectorMove(MOTOR_TEST_BOARD_ID, v, 3U);
+
+
+
+  // کمی صبر برای بالا آمدن CAN و Node
+  /*osDelay(2000);
 
   printf("MOTOR TEST: start\r\n");
 
@@ -52,7 +71,7 @@ void MotorTest_Task(void *argument)
 
   MotorScheduler_EnqueueVectorMove(MOTOR_TEST_BOARD_ID, v, 3U);
 
-  printf("MOTOR TEST: queued all tests\r\n");
+  printf("MOTOR TEST: queued all tests\r\n");*/
 
   for (;;)
   {

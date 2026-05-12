@@ -46,6 +46,7 @@
 #include "motor_scheduler.h"
 #include "motor_test.h"
 #include "therapy_engine.h"   // تصمیم سطح بالا برای therapy و ارسال به motor_scheduler
+#include "motor_status_can.h"   // decode Node -> Main motor feedback on 0x480 + BOARD_ID
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -371,13 +372,26 @@ void CanRxTask(void *argument)
 
     const uint16_t id = (uint16_t)m.h.StdId;
 
-   /* printf("CAN RX id=0x%03X dlc=%u data=%02X %02X %02X %02X %02X %02X %02X %02X\r\n",
-           (unsigned int)id,
-           (unsigned int)m.h.DLC,
-           (unsigned int)m.d[0], (unsigned int)m.d[1],
-           (unsigned int)m.d[2], (unsigned int)m.d[3],
-           (unsigned int)m.d[4], (unsigned int)m.d[5],
-           (unsigned int)m.d[6], (unsigned int)m.d[7]);*/
+    // DEBUG:
+    // بررسی اینکه Main اصلاً status frame از Node را روی CAN می‌بیند یا نه.
+    if ((id >= 0x480U) && (id < 0x490U))
+    {
+     /* printf("CAN RX MOTOR STATUS RAW id=0x%03X dlc=%u data:%02X %02X %02X %02X %02X %02X %02X %02X\r\n",
+             (unsigned)id,
+             (unsigned)m.h.DLC,
+             m.d[0], m.d[1], m.d[2], m.d[3],
+             m.d[4], m.d[5], m.d[6], m.d[7]);*/
+    }
+
+
+    // === [MOTOR STATUS RX] Node -> Main motor feedback ===
+    // Motor status frames use 0x480 + BOARD_ID.
+    // این frameها مربوط به sensor assembly نیستند و باید قبل از BASE_ID sensor decode جدا شوند.
+    if (MotorStatusCan_IsStatusId(id) != 0U)
+    {
+      MotorStatusCan_HandleFrame(id, m.d, now);
+      continue;
+    }
 
     // === [FILTER] فقط ID های بازه سنسورها ===
     if (id < (uint16_t)BASE_ID)  continue;
