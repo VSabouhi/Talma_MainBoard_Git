@@ -1,14 +1,16 @@
 #include "motor_test.h"
 #include "motor_scheduler.h"
-
 #include "cmsis_os.h"
 #include <stdio.h>
+#include "motor_can.h"
+/*--------------------------------------------------------------------------------*/
 
 // === HARDCODED MOTOR TESTS ===
 // این task فقط برای bring-up موتور است.
 // بعد از تست موفق، disable شود و therapy_engine از motor_scheduler API استفاده کند.
 
 #define MOTOR_TEST_BOARD_ID   1U
+/*--------------------------------------------------------------------------------*/
 
 void MotorTest_Task(void *argument)
 {
@@ -30,6 +32,20 @@ void MotorTest_Task(void *argument)
   };
 
   MotorScheduler_EnqueueVectorMove(MOTOR_TEST_BOARD_ID, v, 3U);
+
+  osDelay(3000);
+
+  // === POS_QUERY test ===
+  // بعد از اجرای حرکت‌ها، position نرم‌افزاری موتورهای 0،1،2 را از Node می‌پرسیم.
+  printf("MOTOR TEST: pos query motors 0,1,2\r\n");
+
+  MotorCan_SendPosQuery(MOTOR_TEST_BOARD_ID, 0U);
+  osDelay(200);
+
+  MotorCan_SendPosQuery(MOTOR_TEST_BOARD_ID, 1U);
+  osDelay(200);
+
+  MotorCan_SendPosQuery(MOTOR_TEST_BOARD_ID, 2U);
 
 
 
@@ -78,3 +94,10 @@ void MotorTest_Task(void *argument)
     osDelay(1000);
   }
 }
+/*--------------------------------------------------------------------------------*/
+
+/*--------------------------------------------------------------------------------*/
+
+/*--------------------------------------------------------------------------------*/
+
+/*--------------------------------------------------------------------------------*/

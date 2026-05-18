@@ -389,7 +389,15 @@ uint8_t TherapyEngine_HasPendingPlanId(const TherapyEngineState_t *st,
   return 1U;
 }
 /*--------------------------------------------------------------------------------*/
+void TherapyEngine_ClearPendingPlan(TherapyEngineState_t *st)
+{
+  if (st == 0)
+    return;
 
+  // === clear pending plan after approval/execution handoff ===
+  // این reject نیست؛ فقط plan از pending approval خارج شده است.
+  TherapyEngine_ClearPlan(&st->pending_plan);
+}
 /*--------------------------------------------------------------------------------*/
 
 /*--------------------------------------------------------------------------------*/

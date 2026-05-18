@@ -1,5 +1,6 @@
 #include "motor_can.h"
 #include "can_rtos_tx.h"
+/*--------------------------------------------------------------------------------*/
 
 // === MOTOR CAN LAYER ===
 // این فایل فقط CAN frame می‌سازد.
@@ -9,12 +10,14 @@ static uint16_t MotorCan_GetStdId(uint8_t board_id)
 {
   return (uint16_t)(MOTOR_CAN_BASE_ID + board_id);
 }
+/*--------------------------------------------------------------------------------*/
 
 static void MotorCan_PutI16LE(uint8_t *lo, uint8_t *hi, int16_t v)
 {
   *lo = (uint8_t)((uint16_t)v & 0xFFU);
   *hi = (uint8_t)(((uint16_t)v >> 8) & 0xFFU);
 }
+/*--------------------------------------------------------------------------------*/
 
 BaseType_t MotorCan_SendSingleMove(uint8_t board_id, uint8_t motor_idx, int16_t delta)
 {
@@ -27,6 +30,7 @@ BaseType_t MotorCan_SendSingleMove(uint8_t board_id, uint8_t motor_idx, int16_t 
 
   return CanRtosTx_SendStd_Async(MotorCan_GetStdId(board_id), d, MOTOR_CAN_DLC);
 }
+/*--------------------------------------------------------------------------------*/
 
 BaseType_t MotorCan_SendMaskMove(uint8_t board_id, uint32_t mask, int16_t delta)
 {
@@ -42,6 +46,7 @@ BaseType_t MotorCan_SendMaskMove(uint8_t board_id, uint32_t mask, int16_t delta)
 
   return CanRtosTx_SendStd_Async(MotorCan_GetStdId(board_id), d, MOTOR_CAN_DLC);
 }
+/*--------------------------------------------------------------------------------*/
 
 BaseType_t MotorCan_SendHomeOne(uint8_t board_id, uint8_t motor_idx)
 {
@@ -53,6 +58,7 @@ BaseType_t MotorCan_SendHomeOne(uint8_t board_id, uint8_t motor_idx)
 
   return CanRtosTx_SendStd_Async(MotorCan_GetStdId(board_id), d, MOTOR_CAN_DLC);
 }
+/*--------------------------------------------------------------------------------*/
 
 BaseType_t MotorCan_SendHomeAll(uint8_t board_id)
 {
@@ -63,6 +69,7 @@ BaseType_t MotorCan_SendHomeAll(uint8_t board_id)
 
   return CanRtosTx_SendStd_Async(MotorCan_GetStdId(board_id), d, MOTOR_CAN_DLC);
 }
+/*--------------------------------------------------------------------------------*/
 
 BaseType_t MotorCan_SendVectorBegin(uint8_t board_id, uint8_t count)
 {
@@ -74,6 +81,7 @@ BaseType_t MotorCan_SendVectorBegin(uint8_t board_id, uint8_t count)
 
   return CanRtosTx_SendStd_Async(MotorCan_GetStdId(board_id), d, MOTOR_CAN_DLC);
 }
+/*--------------------------------------------------------------------------------*/
 
 BaseType_t MotorCan_SendVectorItem2(uint8_t board_id,
                                     uint8_t idx_a, int16_t delta_a,
@@ -90,6 +98,7 @@ BaseType_t MotorCan_SendVectorItem2(uint8_t board_id,
 
   return CanRtosTx_SendStd_Async(MotorCan_GetStdId(board_id), d, MOTOR_CAN_DLC);
 }
+/*--------------------------------------------------------------------------------*/
 
 BaseType_t MotorCan_SendVectorCommit(uint8_t board_id)
 {
@@ -100,3 +109,23 @@ BaseType_t MotorCan_SendVectorCommit(uint8_t board_id)
 
   return CanRtosTx_SendStd_Async(MotorCan_GetStdId(board_id), d, MOTOR_CAN_DLC);
 }
+/*--------------------------------------------------------------------------------*/
+BaseType_t MotorCan_SendPosQuery(uint8_t board_id, uint8_t motor_idx)
+{
+  uint8_t d[8] = {0};
+
+  // DATA = 85 idx 00 00 00 00 00 00
+  // Node should respond with:
+  // ACK cmd=0x85
+  // POS_RESPONSE = [86][idx][pos_L][pos_H][target_L][target_H][moving][fault]
+  d[0] = MOTOR_CMD_POS_QUERY;
+  d[1] = motor_idx;
+
+  return CanRtosTx_SendStd_Async(MotorCan_GetStdId(board_id), d, MOTOR_CAN_DLC);
+}
+/*--------------------------------------------------------------------------------*/
+
+/*--------------------------------------------------------------------------------*/
+
+/*--------------------------------------------------------------------------------*/
+

@@ -1,8 +1,10 @@
 #ifndef INC_MOTOR_CAN_H_
 #define INC_MOTOR_CAN_H_
+/*--------------------------------------------------------------------------------*/
 
 #include <stdint.h>
 #include "FreeRTOS.h"
+/*--------------------------------------------------------------------------------*/
 
 // === MOTOR CAN LAYER ===
 // فقط ساخت payload موتور و ارسال به CAN TX.
@@ -21,6 +23,10 @@
 #define MOTOR_CMD_VECTOR_BEGIN   0x08U
 #define MOTOR_CMD_VECTOR_ITEM    0x09U
 #define MOTOR_CMD_VECTOR_COMMIT  0x0AU
+// === motor feedback/query commands ===
+// POS_QUERY از Main به Node می‌رود و Node با POS_RESPONSE = 0x86 جواب می‌دهد.
+#define MOTOR_CMD_POS_QUERY      0x85U
+/*--------------------------------------------------------------------------------*/
 
 BaseType_t MotorCan_SendSingleMove(uint8_t board_id, uint8_t motor_idx, int16_t delta);
 BaseType_t MotorCan_SendMaskMove(uint8_t board_id, uint32_t mask, int16_t delta);
@@ -32,5 +38,11 @@ BaseType_t MotorCan_SendVectorItem2(uint8_t board_id,
                                     uint8_t idx_a, int16_t delta_a,
                                     uint8_t idx_b, int16_t delta_b);
 BaseType_t MotorCan_SendVectorCommit(uint8_t board_id);
+// === request current software position of one motor ===
+BaseType_t MotorCan_SendPosQuery(uint8_t board_id, uint8_t motor_idx);
+/*--------------------------------------------------------------------------------*/
+
+/*--------------------------------------------------------------------------------*/
+
 
 #endif

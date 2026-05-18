@@ -3,6 +3,7 @@
 #include "motor_scheduler.h"   // notify scheduler about ACK/DONE/FAULT
 #include <stdio.h>
 #include <string.h>
+#include "motor_state_model.h"
 /*--------------------------------------------------------------------------------*/
 
 // === MOTOR STATUS CAN LAYER ===
@@ -173,6 +174,46 @@ uint8_t MotorStatusCan_HandleFrame(uint16_t std_id,
              (unsigned)st.moving,
              (unsigned)st.fault);
       break;
+      if (st.type == MOTOR_STATUS_TYPE_ACK)
+      {
+        MotorStateModel_UpdateAck(st.board_id,
+                                  st.cmd,
+                                  st.result,
+                                  st.busy,
+                                  st.fault,
+                                  st.seq,
+                                  now_ms);
+      }
+      else if (st.type == MOTOR_STATUS_TYPE_DONE)
+      {
+        MotorStateModel_UpdateDone(st.board_id,
+                                   st.cmd,
+                                   st.result,
+                                   st.busy,
+                                   st.fault,
+                                   st.seq,
+                                   now_ms);
+      }
+      else if (st.type == MOTOR_STATUS_TYPE_FAULT)
+      {
+        MotorStateModel_UpdateRuntimeFault(st.board_id,
+                                           st.cmd,
+                                           st.fault_code,
+                                           st.motor_idx,
+                                           st.busy,
+                                           st.seq,
+                                           now_ms);
+      }
+      else if (st.type == MOTOR_STATUS_TYPE_POS_RESPONSE)
+      {
+        MotorStateModel_UpdatePosResponse(st.board_id,
+                                          st.motor_idx,
+                                          st.position,
+                                          st.target,
+                                          st.moving,
+                                          st.fault,
+                                          now_ms);
+      }
 
     default:
       break;

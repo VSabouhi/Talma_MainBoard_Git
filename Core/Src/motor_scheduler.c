@@ -7,6 +7,7 @@
 #include "task.h"
 #include <string.h>
 #include <stdio.h>
+#include "app_intervention.h"
 /*--------------------------------------------------------------------------------*/
 
 // === MOTOR SCHEDULER ===
@@ -36,6 +37,10 @@ typedef enum {
 typedef struct {
   MotorReqType_t type;
   uint8_t board_id;
+  // === optional intervention lifecycle tag ===
+  // اگر notify_intervention=1 باشد، بعد از پایان execution نتیجه به app_intervention اعلام می‌شود.
+  uint8_t notify_intervention;
+  uint32_t plan_id;
 
   union {
     struct {
@@ -342,10 +347,31 @@ BaseType_t MotorScheduler_EnqueueVectorMove(uint8_t board_id,
 }
 /*--------------------------------------------------------------------------------*/
 
-static void MotorScheduler_PaceFrame(void)
+
+BaseType_t MotorScheduler_EnqueueInterventionVectorMove(uint32_t plan_id,
+                                                        uint8_t board_id,
+                                                        const MotorVectorItem_t *items,
+                                                        uint8_t count)
 {
-  vTaskDelay(pdMS_TO_TICKS(MOTOR_SCHED_FRAME_GAP_MS));
+  if ((items == NULL) || (count == 0U) || (count > MOTOR_SCHED_MAX_VECTOR_ITEMS))
+    return pdFAIL;
+
+  MotorReq_t r;
+  memset(&r, 0, sizeof(r));
+
+  r.type = MOTOR_REQ_VECTOR_MOVE;
+  r.board_id = board_id;
+  r.notify_intervention = 1U;
+  r.plan_id = plan_id;
+
+  r.u.vector.count = count;
+  memcpy(r.u.vector.item, items, count * sizeof(MotorVectorItem_t));
+
+  return MotorScheduler_Enqueue(&r);
 }
+/*--------------------------------------------------------------------------------*/
+
+
 /*--------------------------------------------------------------------------------*/
 
 static void MotorScheduler_PaceCommand(void)
@@ -354,7 +380,7 @@ static void MotorScheduler_PaceCommand(void)
 }
 /*--------------------------------------------------------------------------------*/
 
-static void MotorScheduler_HandleVector(const MotorReq_t *r)
+static uint8_t MotorScheduler_HandleVector(const MotorReq_t *r)
 {
   uint8_t count = r->u.vector.count;
 
@@ -367,7 +393,7 @@ static void MotorScheduler_HandleVector(const MotorReq_t *r)
   if (MotorCan_SendVectorBegin(r->board_id, count) != pdPASS)
   {
     MotorStateModel_RecordFault(r->board_id, 0xFFU);
-    return;
+    return 0U;
   }
 
   if (MotorScheduler_WaitAck(r->board_id,
@@ -375,7 +401,7 @@ static void MotorScheduler_HandleVector(const MotorReq_t *r)
                              MOTOR_SCHED_ACK_TIMEOUT_MS) == 0U)
   {
     MotorStateModel_RecordFault(r->board_id, 0xFFU);
-    return;
+    return 0U;
   }
 
   for (uint8_t i = 0; i < count; i += 2U)
@@ -400,7 +426,7 @@ static void MotorScheduler_HandleVector(const MotorReq_t *r)
                                  delta_b) != pdPASS)
     {
       MotorStateModel_RecordFault(r->board_id, idx_a);
-      return;
+      return 0U;
     }
 
     if (MotorScheduler_WaitAck(r->board_id,
@@ -408,7 +434,7 @@ static void MotorScheduler_HandleVector(const MotorReq_t *r)
                                MOTOR_SCHED_ACK_TIMEOUT_MS) == 0U)
     {
       MotorStateModel_RecordFault(r->board_id, idx_a);
-      return;
+      return 0U;
     }
   }
 
@@ -417,7 +443,7 @@ static void MotorScheduler_HandleVector(const MotorReq_t *r)
   if (MotorCan_SendVectorCommit(r->board_id) != pdPASS)
   {
     MotorStateModel_RecordFault(r->board_id, 0xFFU);
-    return;
+    return 0U;
   }
 
   if (MotorScheduler_WaitAck(r->board_id,
@@ -425,7 +451,7 @@ static void MotorScheduler_HandleVector(const MotorReq_t *r)
                              MOTOR_SCHED_ACK_TIMEOUT_MS) == 0U)
   {
     MotorStateModel_RecordFault(r->board_id, 0xFFU);
-    return;
+    return 0U;
   }
 
   if (MotorScheduler_WaitDoneOrFault(r->board_id,
@@ -433,10 +459,11 @@ static void MotorScheduler_HandleVector(const MotorReq_t *r)
                                      MOTOR_SCHED_VECTOR_DONE_TIMEOUT_MS) == 0U)
   {
     MotorStateModel_RecordFault(r->board_id, 0xFFU);
-    return;
+    return 0U;
   }
 
   MotorStateModel_ApplyVectorMove(r->board_id, r->u.vector.item, count);
+  return 1U;
 }
 /*--------------------------------------------------------------------------------*/
 
@@ -537,15 +564,21 @@ void MotorScheduler_Task(void *argument)
       case MOTOR_REQ_VECTOR_MOVE:
       {
         // === feedback-aware atomic vector move ===
-        // BEGIN/ITEM/COMMIT با ACK چک می‌شوند و COMMIT منتظر DONE/FAULT می‌ماند.
+        // اگر این request مربوط به intervention باشد، نتیجه execution به app_intervention برمی‌گردد.
         printf("MOTOR SCHED: vector start board=%u count=%u\r\n",
                (unsigned)r.board_id,
                (unsigned)r.u.vector.count);
 
-        MotorScheduler_HandleVector(&r);
+        uint8_t ok = MotorScheduler_HandleVector(&r);
 
-        printf("MOTOR SCHED: vector done board=%u\r\n",
-               (unsigned)r.board_id);
+        printf("MOTOR SCHED: vector done board=%u ok=%u\r\n",
+               (unsigned)r.board_id,
+               (unsigned)ok);
+
+        if (r.notify_intervention != 0U)
+        {
+          AppIntervention_OnMotorExecutionDone(r.plan_id, ok);
+        }
 
         break;
       }

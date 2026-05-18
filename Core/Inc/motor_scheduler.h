@@ -25,6 +25,12 @@ BaseType_t MotorScheduler_EnqueueHomeAll(uint8_t board_id);
 BaseType_t MotorScheduler_EnqueueVectorMove(uint8_t board_id,
                                             const MotorVectorItem_t *items,
                                             uint8_t count);
+// === tagged vector move for intervention lifecycle ===
+// plan_id بعد از پایان execution به AppIntervention برگردانده می‌شود.
+BaseType_t MotorScheduler_EnqueueInterventionVectorMove(uint32_t plan_id,
+                                                        uint8_t board_id,
+                                                        const MotorVectorItem_t *items,
+                                                        uint8_t count);
 /*--------------------------------------------------------------------------------*/
 
 // === motor feedback from Node ===

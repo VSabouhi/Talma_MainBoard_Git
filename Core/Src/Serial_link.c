@@ -404,9 +404,10 @@ void SerialLink_RxTask(void *argument)
 
     // DEBUG:
     // فقط وقتی 8 بایت کامل دریافت شد چاپ می‌کنیم.
-   /* printf("UI RX PKT: %02X %02X %02X %02X %02X %02X %02X %02X\r\n",
+    // DEBUG: show received UI command packet
+    printf("UI RX PKT: %02X %02X %02X %02X %02X %02X %02X %02X\r\n",
            pkt[0], pkt[1], pkt[2], pkt[3],
-           pkt[4], pkt[5], pkt[6], pkt[7]);*/
+           pkt[4], pkt[5], pkt[6], pkt[7]);
 
     if (pkt[6] != PKT_CRC0) continue;
     if (pkt[7] != PKT_CRC1) continue;
