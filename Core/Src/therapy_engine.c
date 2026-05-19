@@ -401,4 +401,42 @@ void TherapyEngine_ClearPendingPlan(TherapyEngineState_t *st)
 /*--------------------------------------------------------------------------------*/
 
 /*--------------------------------------------------------------------------------*/
+void TherapyEngine_DebugCreatePendingPlan(TherapyEngineState_t *st,
+                                          uint32_t now_ms)
+{
+  if (st == 0)
+    return;
 
+  if (TherapyEngine_HasPendingPlan(st) != 0U)
+    return;
+
+  TherapyEngine_ClearPlan(&st->pending_plan);
+
+  // === DEBUG PLAN ===
+  // این plan فقط برای تست مسیر UI approve -> intervention lifecycle است.
+  // وابسته به pressure/risk/snapshot نیست.
+  TherapyEngine_BuildSacrumPlan(&st->pending_plan);
+
+  st->plan_count++;
+  st->last_plan_ms = now_ms;
+
+  st->pending_plan.valid = 1U;
+  st->pending_plan.status = THERAPY_PLAN_STATUS_PENDING_APPROVAL;
+  st->pending_plan.created_ms = now_ms;
+  st->pending_plan.plan_id = st->plan_count;
+  st->pending_plan.ui_sent = 0U;
+
+  st->pending_plan.risk_score = 42U;
+  st->pending_plan.risk_level = 1U;
+  st->pending_plan.recommendation_code = 0U;
+  st->pending_plan.reason_code = THERAPY_REASON_HIGH_RISK;
+
+  printf("THERAPY DEBUG PLAN: pending id=%lu type=%u zone=%u motors=%u\r\n",
+         (unsigned long)st->pending_plan.plan_id,
+         (unsigned)st->pending_plan.type,
+         (unsigned)st->pending_plan.target_zone,
+         (unsigned)st->pending_plan.motor_count);
+}
+/*--------------------------------------------------------------------------------*/
+
+/*--------------------------------------------------------------------------------*/

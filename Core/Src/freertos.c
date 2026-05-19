@@ -62,6 +62,10 @@ typedef StaticTask_t osStaticThreadDef_t;
 // === minimum time gap between full-bed snapshots sent to UI ===
 // جلوگیری از ارسال بیش از حد snapshot کامل
 #define SUMMARY_FIXED_PERIOD_MS   1000U
+
+// === UI stream throttle ===
+// برای اینکه UART RX فرصت دریافت command از UI داشته باشد، stream خروجی را محدود می‌کنیم.
+#define UI_NODE32_SEND_EVERY_N_CYCLES   50U
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -181,6 +185,11 @@ void MX_FREERTOS_Init(void) {
 	// این فعال‌سازی موتور را حرکت نمی‌دهد؛ فقط اجازه ساخت pending_plan می‌دهد.
 	TherapyEngine_SetEnabled(&g_therapy, 1U);
 
+	// DEBUG ONLY:
+	// ساخت pending plan دستی برای تست approve lifecycle.
+	// بعد از تست حتماً کامنت شود.
+	//TherapyEngine_DebugCreatePendingPlan(&g_therapy, HAL_GetTick());
+
 	const osThreadAttr_t serialTxTask_attributes = {
 	  .name = "serialTxTask",
 	  .stack_size = 512 * 4,
@@ -190,7 +199,7 @@ void MX_FREERTOS_Init(void) {
 	const osThreadAttr_t serialRxTask_attributes = {
 	  .name = "serialRxTask",
 	  .stack_size = 512 * 4,
-	  .priority = (osPriority_t) osPriorityNormal,
+	  .priority = (osPriority_t) osPriorityAboveNormal,
 	};
 
 	const osThreadAttr_t canTxTask_attributes = {
@@ -339,18 +348,17 @@ void CanRxTask(void *argument)
   (void)argument;
 
   CanRxMsg m;
-  // === آخرین زمان enqueue شدن snapshot کامل تخت ===
+
+  // === آخرین زمان enqueue شدن packetهای سنگین UI ===
   static uint32_t last_summary_tx_ms = 0U;
 
   // === [CONFIG] حداکثر فاصله مجاز بین chunk های یک assemble ===
-  // اگر 4 فریم یک نود با فاصله خیلی زیاد برسند، assemble ریست می‌شود
   const uint32_t ASM_TIMEOUT_MS = 100U;
 
   // === [STAT] شمارش خطای enqueue به UART TX queue ===
   static volatile uint32_t tx_drop = 0;
 
   // === شناسه فریم ارسالی به UI ===
-  // هر بار که یک snapshot کامل برای UI enqueue می‌شود، این مقدار یکی زیاد می‌شود
   static uint16_t ui_frame_id = 0U;
 
   uint16_t frame_id = 0;
@@ -358,7 +366,6 @@ void CanRxTask(void *argument)
   for (;;)
   {
     // === [RX] منتظر پیام از صف CAN RX ===
-    // این صف توسط ISR پر می‌شود
     if (xQueueReceive(qCanRx, &m, portMAX_DELAY) != pdPASS)
       continue;
 
@@ -372,21 +379,9 @@ void CanRxTask(void *argument)
 
     const uint16_t id = (uint16_t)m.h.StdId;
 
-    // DEBUG:
-    // بررسی اینکه Main اصلاً status frame از Node را روی CAN می‌بیند یا نه.
-    if ((id >= 0x480U) && (id < 0x490U))
-    {
-     /* printf("CAN RX MOTOR STATUS RAW id=0x%03X dlc=%u data:%02X %02X %02X %02X %02X %02X %02X %02X\r\n",
-             (unsigned)id,
-             (unsigned)m.h.DLC,
-             m.d[0], m.d[1], m.d[2], m.d[3],
-             m.d[4], m.d[5], m.d[6], m.d[7]);*/
-    }
-
-
     // === [MOTOR STATUS RX] Node -> Main motor feedback ===
     // Motor status frames use 0x480 + BOARD_ID.
-    // این frameها مربوط به sensor assembly نیستند و باید قبل از BASE_ID sensor decode جدا شوند.
+    // این frameها مربوط به sensor assembly نیستند و باید قبل از sensor decode جدا شوند.
     if (MotorStatusCan_IsStatusId(id) != 0U)
     {
       MotorStatusCan_HandleFrame(id, m.d, now);
@@ -394,17 +389,15 @@ void CanRxTask(void *argument)
     }
 
     // === [FILTER] فقط ID های بازه سنسورها ===
-    if (id < (uint16_t)BASE_ID)  continue;
+    if (id < (uint16_t)BASE_ID) continue;
 
     // === [DECODE] استخراج node و chunk از CAN ID ===
-    // فرمت:
-    // ID = BASE_ID + node*4 + chunk
     const uint16_t rel   = (uint16_t)(id - (uint16_t)BASE_ID);
-    const uint8_t  node  = (uint8_t)(rel >> 2);      // هر 4 فریم = یک نود
-    const uint8_t  chunk = (uint8_t)(rel & 0x03U);   // chunk = 0..3
+    const uint8_t  node  = (uint8_t)(rel >> 2);
+    const uint8_t  chunk = (uint8_t)(rel & 0x03U);
 
     // === [BOUND CHECK] اگر node خارج از بازه معتبر بود ===
-    if (node >= (uint8_t)NODES)  continue;
+    if (node >= (uint8_t)NODES) continue;
 
     // === [TRACK] ثبت آخرین زمان دریافت هر فریم از این نود ===
     node_last_frame_ms[node] = now;
@@ -414,7 +407,6 @@ void CanRxTask(void *argument)
     {
       if ((now - asm_start_ms[node]) > ASM_TIMEOUT_MS)
       {
-        // assemble قبلی ناقص مانده و timeout شده
         chunk_mask[node] = 0U;
         asm_start_ms[node] = now;
       }
@@ -427,7 +419,6 @@ void CanRxTask(void *argument)
     }
 
     // === [DECODE SENSOR BYTES] decode کردن raw/value/status ===
-    // هر chunk شامل 8 بایت = 8 سنسور است
     const uint8_t base = (uint8_t)((uint32_t)chunk * SENSOR_BYTES_PER_CHUNK);
 
     for (uint8_t i = 0; i < SENSOR_BYTES_PER_CHUNK; i++)
@@ -435,18 +426,19 @@ void CanRxTask(void *argument)
       const uint8_t raw = m.d[i];
       const uint8_t idx = (uint8_t)(base + i);
 
-      // ذخیره بایت خام
       sensors32[node][idx] = raw;
 
-      // استخراج مقدار سنسور از بیت‌های 0..5
-      sensor_value[node][idx] = (uint8_t)(raw & SENSOR_VALUE_MASK);
+      sensor_value[node][idx] =
+          (uint8_t)(raw & SENSOR_VALUE_MASK);
 
-      // استخراج status از بیت‌های 6..7
-      sensor_status[node][idx] = (uint8_t)((raw >> SENSOR_STATUS_SHIFT) & SENSOR_STATUS_MASK);
-      //  ساخت valid mask برای این سنسور ===
-      valid_mask[node][idx] = SensorStatus_IsValid(sensor_status[node][idx]);
-      //  ساخت confidence برای این سنسور ===
-      sensor_confidence[node][idx] = SensorStatus_GetConfidence(sensor_status[node][idx]);
+      sensor_status[node][idx] =
+          (uint8_t)((raw >> SENSOR_STATUS_SHIFT) & SENSOR_STATUS_MASK);
+
+      valid_mask[node][idx] =
+          SensorStatus_IsValid(sensor_status[node][idx]);
+
+      sensor_confidence[node][idx] =
+          SensorStatus_GetConfidence(sensor_status[node][idx]);
     }
 
     // === [MARK] این chunk برای این نود دریافت شد ===
@@ -455,339 +447,353 @@ void CanRxTask(void *argument)
     // === [COMPLETE] اگر هر 4 chunk رسیده‌اند ===
     if (chunk_mask[node] == 0x0FU)
     {
-      // reset برای سیکل بعدی
       chunk_mask[node] = 0U;
-
-      // شمارنده سیکل کامل این نود
       cycles_ok[node]++;
 
       // === [MEASURE] اندازه‌گیری فاصله بین complete cycle های این نود ===
       {
         uint32_t prev_complete = node_last_complete_ms[node];
-
-        // ثبت آخرین complete cycle
         node_last_complete_ms[node] = now;
 
-        // اگر این اولین complete نیست، فاصله زمانی را چاپ کن
         if (prev_complete != 0U)
         {
-         /* printf("NODE %u complete_dt=%lu ms\r\n",
+          /*
+          printf("NODE %u complete_dt=%lu ms\r\n",
                  node,
-                 (unsigned long)(now - prev_complete));*/
+                 (unsigned long)(now - prev_complete));
+          */
         }
       }
 
-      // این نود فعلاً online محسوب می‌شود
-      // اگر بعداً داده نرسد، NodeMonitorTask آن را stale/offline می‌کند
       node_state[node] = NODE_STATE_ONLINE;
+
       // === copy completed node sensor data into global bed model ===
-      BedModel_UpdateNode(node, sensor_value, sensor_status, valid_mask, sensor_confidence);
-      // ===  update bed cycle sync state ===
+      BedModel_UpdateNode(node,
+                          sensor_value,
+                          sensor_status,
+                          valid_mask,
+                          sensor_confidence);
+
+      // === update bed cycle sync state ===
       BedSync_OnNodeUpdated(node);
 
-
-     /* printf("AFTER BEDSYNC: cycle=%lu ready=%u mask=0x%08lX\r\n",
-             (unsigned long)bed_cycle,
-             (unsigned int)bed_snapshot_ready,
-             (unsigned long)bed_sync_mask);*/
-
       // === اگر یک snapshot کامل از تخت آماده شده ===
-      // این flag توسط BedSync تنظیم می‌شود
-
       if (bed_snapshot_ready != 0U)
       {
-          // === [NEW] run zone analysis on stable snapshot ===
-          ZoneAnalysis_Run(bed_value_send,
-                           bed_valid_send,
-                           &g_zone_result);
+        // === run zone analysis on stable snapshot ===
+        ZoneAnalysis_Run(bed_value_send,
+                         bed_valid_send,
+                         &g_zone_result);
 
-          // === run movement detection on stable snapshot ===
-          Movement_Run(bed_value_send,
-                       bed_valid_send,
-                       &g_movement);
+        // === run movement detection on stable snapshot ===
+        Movement_Run(bed_value_send,
+                     bed_valid_send,
+                     &g_movement);
 
-          // === run simple risk score engine ===
-          RiskEngine_Run(&g_zone_result,
-                         &g_movement,
-                         &g_risk_result);
+        // === run risk score engine ===
+        RiskEngine_Run(&g_zone_result,
+                       &g_movement,
+                       &g_risk_result);
 
-          AlertEngine_Run(&g_risk_result,
+        AlertEngine_Run(&g_risk_result,
+                        &g_movement,
+                        &g_alert);
+
+        // === generate recommendation from current clinical summary ===
+        Recommendation_Run(&g_risk_result,
+                           &g_alert,
+                           &g_movement,
+                           &g_recommendation);
+
+        // === build intervention plan only ===
+        // هیچ حرکت موتوری اینجا انجام نمی‌شود.
+        TherapyEngine_Run(&g_therapy,
+                          &g_zone_result,
                           &g_movement,
-                          &g_alert);
-          // === generate recommendation from current clinical summary ===
-          Recommendation_Run(&g_risk_result,
-                             &g_alert,
-                             &g_movement,
-                             &g_recommendation);
+                          &g_risk_result,
+                          &g_alert,
+                          &g_recommendation,
+                          now);
 
-          // === build intervention plan only ===
-          // هیچ حرکت موتوری اینجا انجام نمی‌شود.
-          // اگر شرایط خطر وجود داشته باشد، فقط pending_plan برای UI ساخته می‌شود.
-          TherapyEngine_Run(&g_therapy,
-                            &g_zone_result,
-                            &g_movement,
-                            &g_risk_result,
-                            &g_alert,
-                            &g_recommendation,
-                            now);
-          // === send pending intervention plan only once ===
-          // یک plan نباید در هر snapshot دوباره برای UI ارسال شود.
+        // === send pending intervention plan only once ===
+        {
+          TherapyPlan_t *p =
+              (TherapyPlan_t *)TherapyEngine_GetPendingPlan(&g_therapy);
+
+          if (p != 0)
           {
-            TherapyPlan_t *p =
-                (TherapyPlan_t *)TherapyEngine_GetPendingPlan(&g_therapy);
-
-            if (p != 0)
+            if (p->ui_sent == 0U)
             {
-              if (p->ui_sent == 0U)
+              if (SerialLink_SendInterventionPlan_Async(p) == pdPASS)
               {
-                if (SerialLink_SendInterventionPlan_Async(p) == pdPASS)
-                {
-                  p->ui_sent = 1U;
+                p->ui_sent = 1U;
 
-                  printf("THERAPY PLAN: delivered to UI id=%lu\r\n",
-                         (unsigned long)p->plan_id);
-                }
+                printf("THERAPY PLAN: delivered to UI id=%lu\r\n",
+                       (unsigned long)p->plan_id);
               }
             }
           }
+        }
 
-          // === derived summary fields for analytics/trend ===
-          uint16_t uptime_s = (uint16_t)(now / 1000U);
+        // === derived summary fields for analytics/trend ===
+        uint16_t uptime_s = (uint16_t)(now / 1000U);
 
+        uint8_t shoulders_avg = (uint8_t)(
+            ((uint16_t)g_zone_result.zone[ZONE_LEFT_SHOULDER].avg +
+             (uint16_t)g_zone_result.zone[ZONE_RIGHT_SHOULDER].avg) / 2U);
 
-          uint8_t shoulders_avg = (uint8_t)(
-              ((uint16_t)g_zone_result.zone[ZONE_LEFT_SHOULDER].avg +
-               (uint16_t)g_zone_result.zone[ZONE_RIGHT_SHOULDER].avg) / 2U);
+        uint8_t shoulders_peak =
+            (g_zone_result.zone[ZONE_LEFT_SHOULDER].peak >
+             g_zone_result.zone[ZONE_RIGHT_SHOULDER].peak)
+            ? g_zone_result.zone[ZONE_LEFT_SHOULDER].peak
+            : g_zone_result.zone[ZONE_RIGHT_SHOULDER].peak;
 
-          uint8_t shoulders_peak =
-              (g_zone_result.zone[ZONE_LEFT_SHOULDER].peak >
-               g_zone_result.zone[ZONE_RIGHT_SHOULDER].peak)
-              ? g_zone_result.zone[ZONE_LEFT_SHOULDER].peak
-              : g_zone_result.zone[ZONE_RIGHT_SHOULDER].peak;
+        UpdateExposureCounters(&g_zone_result, now);
 
-          UpdateExposureCounters(&g_zone_result, now);
-          uint8_t zones_valid_mask = 0U;
+        uint8_t zones_valid_mask = 0U;
 
-          if (g_zone_result.zone[ZONE_SACRUM].valid_cells > 0U)
-            zones_valid_mask |= (1U << 0);
+        if (g_zone_result.zone[ZONE_SACRUM].valid_cells > 0U)
+          zones_valid_mask |= (1U << 0);
 
-          if (g_zone_result.zone[ZONE_LEFT_HEEL].valid_cells > 0U)
-            zones_valid_mask |= (1U << 1);
+        if (g_zone_result.zone[ZONE_LEFT_HEEL].valid_cells > 0U)
+          zones_valid_mask |= (1U << 1);
 
-          if (g_zone_result.zone[ZONE_RIGHT_HEEL].valid_cells > 0U)
-            zones_valid_mask |= (1U << 2);
+        if (g_zone_result.zone[ZONE_RIGHT_HEEL].valid_cells > 0U)
+          zones_valid_mask |= (1U << 2);
 
-          if (g_zone_result.zone[ZONE_LEFT_SHOULDER].valid_cells > 0U)
-            zones_valid_mask |= (1U << 3);
+        if (g_zone_result.zone[ZONE_LEFT_SHOULDER].valid_cells > 0U)
+          zones_valid_mask |= (1U << 3);
 
-          if (g_zone_result.zone[ZONE_RIGHT_SHOULDER].valid_cells > 0U)
-            zones_valid_mask |= (1U << 4);
+        if (g_zone_result.zone[ZONE_RIGHT_SHOULDER].valid_cells > 0U)
+          zones_valid_mask |= (1U << 4);
 
-          // bit0 = raw averages
-          // bit1 = smoothed averages
-          // bit2 = exposure counters active
-          uint8_t summary_flags = 0x05U;
+        // bit0 = raw averages
+        // bit1 = smoothed averages
+        // bit2 = exposure counters active
+        uint8_t summary_flags = 0x05U;
 
+        if ((now - last_debug_print) >= DEBUG_PRINT_PERIOD_MS)
+        {
+          last_debug_print = now;
 
+#if DEBUG_ZONE_ANALYSIS
+          printf("ZONE: sacrum avg=%u peak=%u valid=%u active=%u | heelL avg=%u | heelR avg=%u\r\n",
+                 g_zone_result.zone[ZONE_SACRUM].avg,
+                 g_zone_result.zone[ZONE_SACRUM].peak,
+                 g_zone_result.zone[ZONE_SACRUM].valid_cells,
+                 g_zone_result.zone[ZONE_SACRUM].active_cells,
+                 g_zone_result.zone[ZONE_LEFT_HEEL].avg,
+                 g_zone_result.zone[ZONE_RIGHT_HEEL].avg);
+#endif
 
-          if ((now - last_debug_print) >= DEBUG_PRINT_PERIOD_MS)
+#if DEBUG_ALERT
+          printf("ALERT: active=%u type=%u sev=%u dur=%lu s\r\n",
+                 g_alert.active,
+                 g_alert.type,
+                 g_alert.severity,
+                 (unsigned long)g_alert.duration_s);
+#endif
+
+#if DEBUG_RISK
+          printf("RISK: score=%u level=%u\r\n",
+                 g_risk_result.score,
+                 g_risk_result.level);
+#endif
+
+#if DEBUG_MOVEMENT
+          printf("MOV: energy=%u detected=%u\r\n",
+                 g_movement.energy,
+                 g_movement.detected);
+#endif
+
+#if DEBUG_RECOMMENDATION
+          printf("REC: code=%u priority=%u sac_avg=%u\r\n",
+                 g_recommendation.code,
+                 g_recommendation.priority,
+                 g_zone_result.zone[ZONE_SACRUM].avg);
+#endif
+        }
+
+        // === UI heavy packet scheduler ===
+        // قبلاً در هر period چهار packet پشت‌سرهم enqueue می‌شد:
+        // BED_SNAPSHOT + BED_STATUS + NODE_HEALTH + SUMMARY
+        // این باعث اشباع UART می‌شد.
+        // الان در هر period فقط یکی از آن‌ها enqueue می‌شود.
+        if ((now - last_summary_tx_ms) >= SUMMARY_FIXED_PERIOD_MS)
+        {
+          uint16_t time_since_last_movement_s = 0xFFFFU;
+
+          if (g_movement.last_movement_ms != 0U)
           {
-              last_debug_print = now;
+            uint32_t dt_ms = now - g_movement.last_movement_ms;
+            uint32_t dt_s = dt_ms / 1000U;
 
-              #if DEBUG_ZONE_ANALYSIS
-              printf("ZONE: sacrum avg=%u peak=%u valid=%u active=%u | heelL avg=%u | heelR avg=%u\r\n",
-                     g_zone_result.zone[ZONE_SACRUM].avg,
-                     g_zone_result.zone[ZONE_SACRUM].peak,
-                     g_zone_result.zone[ZONE_SACRUM].valid_cells,
-                     g_zone_result.zone[ZONE_SACRUM].active_cells,
-                     g_zone_result.zone[ZONE_LEFT_HEEL].avg,
-                     g_zone_result.zone[ZONE_RIGHT_HEEL].avg);
-              #endif
+            if (dt_s > 0xFFFFU)
+              dt_s = 0xFFFFU;
 
-              #if DEBUG_ALERT
-              printf("ALERT: active=%u type=%u sev=%u dur=%lu s\r\n",
-                     g_alert.active,
-                     g_alert.type,
-                     g_alert.severity,
-                     (unsigned long)g_alert.duration_s);
-              #endif
-
-              #if DEBUG_RISK
-              printf("RISK: score=%u level=%u\r\n",
-                     g_risk_result.score,
-                     g_risk_result.level);
-              #endif
-
-              #if DEBUG_MOVEMENT
-              printf("MOV: energy=%u detected=%u\r\n",
-                     g_movement.energy,
-                     g_movement.detected);
-              #endif
-
-              #if DEBUG_RECOMMENDATION
-              printf("REC: code=%u priority=%u sac_avg=%u\r\n",
-                     g_recommendation.code,
-                     g_recommendation.priority,
-                     g_zone_result.zone[ZONE_SACRUM].avg);
-              #endif
+            time_since_last_movement_s = (uint16_t)dt_s;
           }
 
-          if ((now - last_summary_tx_ms) >= SUMMARY_FIXED_PERIOD_MS)
+          frame_id = ++ui_frame_id;
+
+          // === round-robin heavy UI packets ===
+          // هر بار فقط یک packet سنگین وارد qSerialTx می‌شود.
+          static uint8_t ui_heavy_slot = 0U;
+          BaseType_t ui_tx_ok = pdFAIL;
+
+#if DEBUG_SUMMARY_ENQUEUE
+          printf("UI FRAME: frame_id=%u slot=%u\r\n",
+                 frame_id,
+                 (unsigned)ui_heavy_slot);
+#endif
+
+          switch (ui_heavy_slot)
           {
-              uint16_t time_since_last_movement_s = 0xFFFFU;
+            case 0U:
+            {
+              ui_tx_ok = SerialLink_SendBedSnapshot_Async(frame_id);
 
-              if (g_movement.last_movement_ms != 0U)
-              {
-                  uint32_t dt_ms = now - g_movement.last_movement_ms;
-                  uint32_t dt_s = dt_ms / 1000U;
+#if DEBUG_SUMMARY_ENQUEUE
+              printf("ENQ: BED_SNAPSHOT %s\r\n",
+                     (ui_tx_ok == pdPASS) ? "ok" : "fail");
+#endif
+              break;
+            }
 
-                  if (dt_s > 0xFFFFU)
-                      dt_s = 0xFFFFU;
+            case 1U:
+            {
+              ui_tx_ok = SerialLink_SendBedStatus_Async(frame_id);
 
-                  time_since_last_movement_s = (uint16_t)dt_s;
-              }
+#if DEBUG_SUMMARY_ENQUEUE
+              printf("ENQ: BED_STATUS %s\r\n",
+                     (ui_tx_ok == pdPASS) ? "ok" : "fail");
+#endif
+              break;
+            }
 
-              frame_id = ++ui_frame_id;
+            case 2U:
+            {
+              ui_tx_ok = SerialLink_SendNodeHealth_Async(frame_id);
 
-			 #if DEBUG_SUMMARY_ENQUEUE
-              printf("UI FRAME: frame_id=%u\r\n", frame_id);
-              #endif
+#if DEBUG_SUMMARY_ENQUEUE
+              printf("ENQ: NODE_HEALTH %s\r\n",
+                     (ui_tx_ok == pdPASS) ? "ok" : "fail");
+#endif
+              break;
+            }
 
-              if (SerialLink_SendBedSnapshot_Async(frame_id) == pdPASS)
-              {
-                  #if DEBUG_SUMMARY_ENQUEUE
-                  printf("ENQ: BED_SNAPSHOT ok\r\n");
-                  #endif
+            case 3U:
+            default:
+            {
+              ui_tx_ok = SerialLink_SendSummary_Async(
+                  frame_id,
+                  uptime_s,
+                  g_risk_result.score,
+                  g_risk_result.level,
+                  g_movement.detected,
+                  time_since_last_movement_s,
+                  g_alert.active,
+                  g_alert.type,
+                  g_alert.severity,
+                  (uint16_t)g_alert.duration_s,
+                  g_recommendation.code,
+                  g_recommendation.priority,
+                  g_zone_result.zone[ZONE_SACRUM].avg,
+                  g_zone_result.zone[ZONE_SACRUM].peak,
+                  g_zone_result.zone[ZONE_LEFT_HEEL].avg,
+                  g_zone_result.zone[ZONE_RIGHT_HEEL].avg,
+                  shoulders_avg,
+                  shoulders_peak,
+                  g_sacrum_exposure_threshold,
+                  (uint16_t)g_sacrum_exposure_s,
+                  (uint16_t)g_heels_exposure_s,
+                  (uint16_t)g_shoulders_exposure_s,
+                  zones_valid_mask,
+                  summary_flags);
 
-                  if (SerialLink_SendBedStatus_Async(frame_id) == pdPASS)
-                  {
-                      #if DEBUG_SUMMARY_ENQUEUE
-                      printf("ENQ: BED_STATUS ok\r\n");
-                      #endif
-
-                      if (SerialLink_SendNodeHealth_Async(frame_id) == pdPASS)
-                      {
-                          #if DEBUG_SUMMARY_ENQUEUE
-                          printf("ENQ: NODE_HEALTH ok\r\n");
-                          #endif
-
-                          if (SerialLink_SendSummary_Async(
-                                  frame_id,
-                                  uptime_s,
-                                  g_risk_result.score,
-                                  g_risk_result.level,
-                                  g_movement.detected,
-                                  time_since_last_movement_s,
-                                  g_alert.active,
-                                  g_alert.type,
-                                  g_alert.severity,
-                                  (uint16_t)g_alert.duration_s,
-                                  g_recommendation.code,
-                                  g_recommendation.priority,
-                                  g_zone_result.zone[ZONE_SACRUM].avg,
-                                  g_zone_result.zone[ZONE_SACRUM].peak,
-                                  g_zone_result.zone[ZONE_LEFT_HEEL].avg,
-                                  g_zone_result.zone[ZONE_RIGHT_HEEL].avg,
-                                  shoulders_avg,
-                                  shoulders_peak,
-								    g_sacrum_exposure_threshold,
-							        (uint16_t)g_sacrum_exposure_s,
-							        (uint16_t)g_heels_exposure_s,
-							        (uint16_t)g_shoulders_exposure_s,
-							        zones_valid_mask,
-							        summary_flags) == pdPASS)
-                          {
-                              #if DEBUG_SUMMARY_ENQUEUE
-                              printf("ENQ: SUMMARY ok\r\n");
-                              #endif
-
-                              if (last_summary_tx_ms == 0U)
-                                last_summary_tx_ms = now;
-                              else
-                                last_summary_tx_ms += SUMMARY_FIXED_PERIOD_MS;
-                          }
-                          else
-                          {
-                              #if DEBUG_SUMMARY_ENQUEUE
-                              printf("ENQ: SUMMARY fail\r\n");
-                              #endif
-                          }
-                      }
-                      else
-                      {
-                          #if DEBUG_SUMMARY_ENQUEUE
-                          printf("ENQ: NODE_HEALTH fail\r\n");
-                          #endif
-                      }
-                  }
-                  else
-                  {
-                      #if DEBUG_SUMMARY_ENQUEUE
-                      printf("ENQ: BED_STATUS fail\r\n");
-                      #endif
-                  }
-              }
-              else
-              {
-                  #if DEBUG_SUMMARY_ENQUEUE
-                  printf("ENQ: BED_SNAPSHOT fail\r\n");
-                  #endif
-              }
+#if DEBUG_SUMMARY_ENQUEUE
+              printf("ENQ: SUMMARY %s\r\n",
+                     (ui_tx_ok == pdPASS) ? "ok" : "fail");
+#endif
+              break;
+            }
           }
 
+          if (ui_tx_ok == pdPASS)
+          {
+            ui_heavy_slot++;
 
+            if (ui_heavy_slot >= 4U)
+              ui_heavy_slot = 0U;
 
-          // === این snapshot پردازش شد ===
-          bed_snapshot_ready = 0U;
+            if (last_summary_tx_ms == 0U)
+              last_summary_tx_ms = now;
+            else
+              last_summary_tx_ms += SUMMARY_FIXED_PERIOD_MS;
+          }
+          else
+          {
+            // اگر queue پر بود، slot را جلو نمی‌بریم تا packet از دست نرود.
+            // در cycle بعد دوباره همین نوع packet تلاش می‌شود.
+          }
+        }
+
+        // === این snapshot پردازش شد ===
+        bed_snapshot_ready = 0U;
       }
-	#if DEBUG_CAN_RX_COMPLETE
 
-		  printf("NODE %u state=%u flags=0x%02X node_cycle=%lu bed_cycle=%lu sync=0x%08lX | "
-				 "S0->R%uC%u V=%u S=%u M=%u C=%u | "
-				 "S16->R%uC%u V=%u S=%u M=%u C=%u\r\n",
-				 node,
-				 node_state[node],
-				 BuildNodeFlags(node),
-				 (unsigned long)cycles_ok[node],
-				 (unsigned long)bed_cycle,
-				 (unsigned long)bed_sync_mask,
+#if DEBUG_CAN_RX_COMPLETE
+      printf("NODE %u state=%u flags=0x%02X node_cycle=%lu bed_cycle=%lu sync=0x%08lX | "
+             "S0->R%uC%u V=%u S=%u M=%u C=%u | "
+             "S16->R%uC%u V=%u S=%u M=%u C=%u\r\n",
+             node,
+             node_state[node],
+             BuildNodeFlags(node),
+             (unsigned long)cycles_ok[node],
+             (unsigned long)bed_cycle,
+             (unsigned long)bed_sync_mask,
 
-				 BedMap_GetRow(node, 0),
-				 BedMap_GetCol(0),
-				 sensor_value[node][0],
-				 sensor_status[node][0],
-				 valid_mask[node][0],
-				 sensor_confidence[node][0],
+             BedMap_GetRow(node, 0),
+             BedMap_GetCol(0),
+             sensor_value[node][0],
+             sensor_status[node][0],
+             valid_mask[node][0],
+             sensor_confidence[node][0],
 
-				 BedMap_GetRow(node, 16),
-				 BedMap_GetCol(16),
-				 sensor_value[node][16],
-				 sensor_status[node][16],
-				 valid_mask[node][16],
-				 sensor_confidence[node][16]);
-	#endif
-      // ===  ساخت flags برای UI ===
-      // فعلاً فقط state نود داخل flags قرار می‌گیرد
+             BedMap_GetRow(node, 16),
+             BedMap_GetCol(16),
+             sensor_value[node][16],
+             sensor_status[node][16],
+             valid_mask[node][16],
+             sensor_confidence[node][16]);
+#endif
+
+      // === ساخت flags برای UI و ارسال Node32 با throttle ===
       {
         uint8_t uart_flags = BuildNodeFlags(node);
 
-        if (SerialLink_SendNode32_Async(node,
-                                        (uint16_t)cycles_ok[node],
-                                        uart_flags,
-                                        sensors32[node]) != pdPASS)
+        static uint32_t ui_node32_div = 0U;
+        ui_node32_div++;
+
+        if ((ui_node32_div % UI_NODE32_SEND_EVERY_N_CYCLES) == 0U)
         {
+          if (SerialLink_SendNode32_Async(node,
+                                          (uint16_t)cycles_ok[node],
+                                          uart_flags,
+                                          sensors32[node]) != pdPASS)
+          {
             tx_drop++;
             printf("ENQ NODE32 FAIL\r\n");
-        }
-        else
-        {
+          }
+          else
+          {
             printf("ENQ NODE32 OK\r\n");
+          }
         }
       }
     }
   }
 }
-
 
 /* Private application code --------------------------------------------------*/
 /* USER CODE BEGIN Application */
@@ -1050,14 +1056,16 @@ void NodeMonitorTask(void *argument)
         {
           uint8_t uart_flags = BuildNodeFlags(n);
 
-          if (SerialLink_SendNode32_Async((uint8_t)n,
-                                          (uint16_t)cycles_ok[n],
-                                          uart_flags,
-                                          sensors32[n]) != pdPASS)
-          {
-            // === [DEBUG] اگر خواستی، این print را نگه دار ===
-            printf("NodeMonitorTask: UI resend failed for node %u\r\n", n);
-          }
+
+			  if (SerialLink_SendNode32_Async((uint8_t)n,
+											  (uint16_t)cycles_ok[n],
+											  uart_flags,
+											  sensors32[n]) != pdPASS)
+			  {
+				// === [DEBUG] اگر خواستی، این print را نگه دار ===
+				printf("NodeMonitorTask: UI resend failed for node %u\r\n", n);
+			  }
+
         }
 
         // update previous state after successful processing

@@ -16,6 +16,7 @@
 #define SL_MSG_TYPE_NODE_HEALTH    4U   // وضعیت همه نودهاپیام نقشه وضعیت کل تخت
 #define SL_MSG_TYPE_SUMMARY        5U   // summary packet for UI
 #define SL_MSG_TYPE_INTERVENTION_PLAN  6U
+#define SL_MSG_TYPE_INTERVENTION_RESULT 7U
 /*----------------------------------------------------------------------------*/
 // === node32 payload ===
 // payload مربوط به یک نود (32 سنسور)
@@ -82,6 +83,17 @@ typedef struct {
   TherapyPlan_t plan;
 } SL_InterventionPlanPayload;
 
+
+
+// === intervention result payload ===
+// وضعیت execution lifecycle برای UI.
+typedef struct {
+  uint32_t plan_id;
+  uint8_t state;
+  uint8_t board_id;
+  uint8_t motor_count;
+} SL_InterventionResultPayload;
+
 // === generic serial link message ===
 // این پیام می‌تواند یکی از چند نوع خروجی UI باشد
 typedef struct {
@@ -95,6 +107,7 @@ typedef struct {
     SL_NodeHealthPayload health;   // وضعیت همه نودها
     SL_SummaryPayload summary;
     SL_InterventionPlanPayload intervention;
+    SL_InterventionResultPayload intervention_result;
   } payload;
 
 } SL_Msg;
@@ -147,6 +160,15 @@ void SerialLink_TxTask(void *argument);
 void SerialLink_RxTask(void *argument);
 uint32_t SerialLink_TxDropped(void);
 BaseType_t SerialLink_SendInterventionPlan_Async(const TherapyPlan_t *plan);
+
+/*--------------------------------------------------------------------------------*/
+// === enqueue intervention result packet ===
+// ارسال state/result اجرای intervention به UI.
+BaseType_t SerialLink_SendInterventionResult_Async(uint32_t plan_id,
+                                                   uint8_t state,
+                                                   uint8_t board_id,
+                                                   uint8_t motor_count);
+/*--------------------------------------------------------------------------------*/
 /*----------------------------------------------------------------------------*/
 
 

@@ -22,9 +22,15 @@
 // === feedback-aware scheduler timeouts ===
 // ACK باید سریع برسد.
 // DONE وابسته به motion است و طولانی‌تر در نظر گرفته می‌شود.
-#define MOTOR_SCHED_ACK_TIMEOUT_MS       300U
+#define MOTOR_SCHED_ACK_TIMEOUT_MS       1000U
 #define MOTOR_SCHED_DONE_TIMEOUT_MS      5000U
 #define MOTOR_SCHED_VECTOR_DONE_TIMEOUT_MS 8000U
+
+
+// === scheduler debug logs ===
+#define DEBUG_MOTOR_VECTOR   0
+#define DEBUG_MOTOR_FB       0
+#define DEBUG_MOTOR_TIMEOUT  0
 
 typedef enum {
   MOTOR_REQ_SINGLE_MOVE = 1,
@@ -131,6 +137,17 @@ void MotorScheduler_OnMotorStatus(uint8_t board_id,
   g_motor_feedback.fault_code = fault_code;
   g_motor_feedback.busy = busy;
 
+  // DEBUG:
+  // بررسی اینکه scheduler feedback را واقعاً دریافت می‌کند.
+	#if DEBUG_MOTOR_FB
+	  printf("MOTOR SCHED FB: board=%u type=%u cmd=0x%02X result=%u busy=%u\r\n",
+			 (unsigned)board_id,
+			 (unsigned)status_type,
+			 (unsigned)cmd,
+			 (unsigned)result,
+			 (unsigned)busy);
+	#endif
+
   if (g_motor_sched_task != NULL)
   {
     xTaskNotifyGive(g_motor_sched_task);
@@ -175,28 +192,66 @@ static uint8_t MotorScheduler_WaitAck(uint8_t board_id,
 
   for (;;)
   {
-    if (MotorScheduler_FeedbackMatches(board_id, MOTOR_STATUS_TYPE_ACK, cmd) != 0U)
-    {
-      uint8_t result = g_motor_feedback.result;
+	  if (MotorScheduler_FeedbackMatches(board_id, MOTOR_STATUS_TYPE_ACK, cmd) != 0U)
+	  {
+	    uint8_t result = g_motor_feedback.result;
 
-      if (result == MOTOR_RESULT_OK)
-        return 1U;
+	    if (result == MOTOR_RESULT_OK)
+	      return 1U;
 
-      printf("MOTOR SCHED: ACK reject board=%u cmd=0x%02X result=%u\r\n",
-             (unsigned)board_id,
-             (unsigned)cmd,
-             (unsigned)result);
+	    printf("MOTOR SCHED: ACK reject board=%u cmd=0x%02X result=%u\r\n",
+	           (unsigned)board_id,
+	           (unsigned)cmd,
+	           (unsigned)result);
 
-      return 0U;
-    }
+	    return 0U;
+	  }
+
+	  // === ACK can be overwritten by fast DONE ===
+	  // بعضی commandها مخصوصاً VECTOR_COMMIT ممکن است ACK و DONE را خیلی پشت‌سرهم بفرستند.
+	  // چون scheduler فعلاً فقط آخرین feedback را نگه می‌دارد، DONE می‌تواند ACK را overwrite کند.
+	  // در این حالت DONE موفق را به عنوان ACK پذیرفته‌شده قبول می‌کنیم.
+	  // WaitDoneOrFault بعداً همین DONE موجود را خواهد دید.
+	  if (MotorScheduler_FeedbackMatches(board_id, MOTOR_STATUS_TYPE_DONE, cmd) != 0U)
+	  {
+	    if (g_motor_feedback.result == MOTOR_RESULT_OK)
+	      return 1U;
+
+	    printf("MOTOR SCHED: DONE-before-ACK fail board=%u cmd=0x%02X result=%u\r\n",
+	           (unsigned)board_id,
+	           (unsigned)cmd,
+	           (unsigned)g_motor_feedback.result);
+
+	    return 0U;
+	  }
+
+	  // === FAULT can also arrive before ACK is consumed ===
+	  if (MotorScheduler_FeedbackMatches(board_id, MOTOR_STATUS_TYPE_FAULT, cmd) != 0U)
+	  {
+	    printf("MOTOR SCHED: FAULT-before-ACK board=%u cmd=0x%02X fault=%u\r\n",
+	           (unsigned)board_id,
+	           (unsigned)cmd,
+	           (unsigned)g_motor_feedback.fault_code);
+
+	    return 0U;
+	  }
 
     TickType_t now = xTaskGetTickCount();
 
     if ((int32_t)(deadline - now) <= 0)
     {
-      printf("MOTOR SCHED: ACK timeout board=%u cmd=0x%02X\r\n",
-             (unsigned)board_id,
-             (unsigned)cmd);
+
+		#if DEBUG_MOTOR_FB
+			printf("MOTOR SCHED: ACK timeout board=%u cmd=0x%02X | fb valid=%u board=%u type=%u cmd=0x%02X result=%u busy=%u\r\n",
+				   (unsigned)board_id,
+				   (unsigned)cmd,
+				   (unsigned)g_motor_feedback.valid,
+				   (unsigned)g_motor_feedback.board_id,
+				   (unsigned)g_motor_feedback.status_type,
+				   (unsigned)g_motor_feedback.cmd,
+				   (unsigned)g_motor_feedback.result,
+				   (unsigned)g_motor_feedback.busy);
+		#endif
       return 0U;
     }
 
@@ -217,20 +272,27 @@ static uint8_t MotorScheduler_WaitDoneOrFault(uint8_t board_id,
     {
       if (g_motor_feedback.result == MOTOR_RESULT_OK)
         return 1U;
+		#if DEBUG_MOTOR_FB
 
-      printf("MOTOR SCHED: DONE result fail board=%u cmd=0x%02X result=%u\r\n",
-             (unsigned)board_id,
-             (unsigned)cmd,
-             (unsigned)g_motor_feedback.result);
+			  printf("MOTOR SCHED: DONE result fail board=%u cmd=0x%02X result=%u\r\n",
+					 (unsigned)board_id,
+					 (unsigned)cmd,
+					 (unsigned)g_motor_feedback.result);
+		#endif
+
       return 0U;
     }
 
     if (MotorScheduler_FeedbackMatches(board_id, MOTOR_STATUS_TYPE_FAULT, cmd) != 0U)
     {
-      printf("MOTOR SCHED: FAULT board=%u cmd=0x%02X fault=%u\r\n",
-             (unsigned)board_id,
-             (unsigned)cmd,
-             (unsigned)g_motor_feedback.fault_code);
+		#if DEBUG_MOTOR_FB
+
+			  printf("MOTOR SCHED: FAULT board=%u cmd=0x%02X fault=%u\r\n",
+					 (unsigned)board_id,
+					 (unsigned)cmd,
+					 (unsigned)g_motor_feedback.fault_code);
+		#endif
+
       return 0U;
     }
 
@@ -238,9 +300,13 @@ static uint8_t MotorScheduler_WaitDoneOrFault(uint8_t board_id,
 
     if ((int32_t)(deadline - now) <= 0)
     {
-      printf("MOTOR SCHED: DONE timeout board=%u cmd=0x%02X\r\n",
-             (unsigned)board_id,
-             (unsigned)cmd);
+		#if DEBUG_MOTOR_FB
+
+			  printf("MOTOR SCHED: DONE timeout board=%u cmd=0x%02X\r\n",
+					 (unsigned)board_id,
+					 (unsigned)cmd);
+		#endif
+
       return 0U;
     }
 
@@ -254,6 +320,9 @@ static uint8_t MotorScheduler_SendAndWaitMotion(uint8_t board_id,
                                                 BaseType_t send_ok,
                                                 uint32_t done_timeout_ms)
 {
+
+
+
 	MotorScheduler_ClearFeedback();
 
   if (send_ok != pdPASS)
@@ -266,6 +335,7 @@ static uint8_t MotorScheduler_SendAndWaitMotion(uint8_t board_id,
 
   if (MotorScheduler_WaitAck(board_id, cmd, MOTOR_SCHED_ACK_TIMEOUT_MS) == 0U)
     return 0U;
+
 
   if (MotorScheduler_WaitDoneOrFault(board_id, cmd, done_timeout_ms) == 0U)
     return 0U;
@@ -387,11 +457,21 @@ static uint8_t MotorScheduler_HandleVector(const MotorReq_t *r)
   // === atomic vector send with ACK/DONE awareness ===
   // BEGIN و ITEMها فقط ACK می‌خواهند.
   // COMMIT هم ACK می‌خواهد و بعد DONE/FAULT کل vector.
+	#if DEBUG_MOTOR_VECTOR
+	  printf("VECTOR: BEGIN count=%u\r\n", (unsigned)count);
+	#endif
 
   MotorScheduler_ClearFeedback();
 
   if (MotorCan_SendVectorBegin(r->board_id, count) != pdPASS)
   {
+	#if DEBUG_MOTOR_VECTOR
+		printf("VECTOR FAIL: BEGIN send failed board=%u count=%u\r\n",
+			   (unsigned)r->board_id,
+			   (unsigned)count);
+	#endif
+
+
     MotorStateModel_RecordFault(r->board_id, 0xFFU);
     return 0U;
   }
@@ -400,11 +480,23 @@ static uint8_t MotorScheduler_HandleVector(const MotorReq_t *r)
                              MOTOR_CMD_VECTOR_BEGIN,
                              MOTOR_SCHED_ACK_TIMEOUT_MS) == 0U)
   {
+	#if DEBUG_MOTOR_VECTOR
+		printf("VECTOR FAIL: BEGIN ACK failed board=%u count=%u\r\n",
+			   (unsigned)r->board_id,
+			   (unsigned)count);
+	#endif
+
+
     MotorStateModel_RecordFault(r->board_id, 0xFFU);
     return 0U;
   }
+	#if DEBUG_MOTOR_VECTOR
+	  printf("VECTOR: BEGIN ACK ok board=%u count=%u\r\n",
+			 (unsigned)r->board_id,
+			 (unsigned)count);
+	#endif
 
-  for (uint8_t i = 0; i < count; i += 2U)
+  for (uint8_t i = 0U; i < count; i += 2U)
   {
     uint8_t idx_a = r->u.vector.item[i].idx;
     int16_t delta_a = r->u.vector.item[i].delta;
@@ -417,14 +509,34 @@ static uint8_t MotorScheduler_HandleVector(const MotorReq_t *r)
       idx_b = r->u.vector.item[i + 1U].idx;
       delta_b = r->u.vector.item[i + 1U].delta;
     }
+	#if DEBUG_MOTOR_VECTOR
+		printf("VECTOR: ITEM i=%u idxA=%u dA=%d idxB=%u dB=%d\r\n",
+			   (unsigned)i,
+			   (unsigned)idx_a,
+			   (int)delta_a,
+			   (unsigned)idx_b,
+			   (int)delta_b);
+	#endif
 
     MotorScheduler_ClearFeedback();
+
     if (MotorCan_SendVectorItem2(r->board_id,
                                  idx_a,
                                  delta_a,
                                  idx_b,
                                  delta_b) != pdPASS)
     {
+	#if DEBUG_MOTOR_VECTOR
+      printf("VECTOR FAIL: ITEM send failed board=%u i=%u idxA=%u dA=%d idxB=%u dB=%d\r\n",
+             (unsigned)r->board_id,
+             (unsigned)i,
+             (unsigned)idx_a,
+             (int)delta_a,
+             (unsigned)idx_b,
+             (int)delta_b);
+	#endif
+
+
       MotorStateModel_RecordFault(r->board_id, idx_a);
       return 0U;
     }
@@ -433,15 +545,41 @@ static uint8_t MotorScheduler_HandleVector(const MotorReq_t *r)
                                MOTOR_CMD_VECTOR_ITEM,
                                MOTOR_SCHED_ACK_TIMEOUT_MS) == 0U)
     {
+	#if DEBUG_MOTOR_VECTOR
+
+      printf("VECTOR FAIL: ITEM ACK failed board=%u i=%u idxA=%u idxB=%u\r\n",
+             (unsigned)r->board_id,
+             (unsigned)i,
+             (unsigned)idx_a,
+             (unsigned)idx_b);
+	#endif
+
+
       MotorStateModel_RecordFault(r->board_id, idx_a);
       return 0U;
     }
+	#if DEBUG_MOTOR_VECTOR
+
+    	printf("VECTOR: ITEM ACK ok i=%u\r\n", (unsigned)i);
+	#endif
+
   }
+
+	#if DEBUG_MOTOR_VECTOR
+		printf("VECTOR: COMMIT\r\n");
+	#endif
 
   MotorScheduler_ClearFeedback();
 
   if (MotorCan_SendVectorCommit(r->board_id) != pdPASS)
   {
+	#if DEBUG_MOTOR_VECTOR
+
+		printf("VECTOR FAIL: COMMIT send failed board=%u\r\n",
+			   (unsigned)r->board_id);
+	#endif
+
+
     MotorStateModel_RecordFault(r->board_id, 0xFFU);
     return 0U;
   }
@@ -450,19 +588,49 @@ static uint8_t MotorScheduler_HandleVector(const MotorReq_t *r)
                              MOTOR_CMD_VECTOR_COMMIT,
                              MOTOR_SCHED_ACK_TIMEOUT_MS) == 0U)
   {
+	#if DEBUG_MOTOR_VECTOR
+
+    printf("VECTOR FAIL: COMMIT ACK failed board=%u\r\n",
+           (unsigned)r->board_id);
+	#endif
+
+
     MotorStateModel_RecordFault(r->board_id, 0xFFU);
     return 0U;
   }
+	#if DEBUG_MOTOR_VECTOR
+
+	  printf("VECTOR: COMMIT ACK ok board=%u\r\n",
+			 (unsigned)r->board_id);
+
+	  printf("VECTOR: WAIT DONE board=%u cmd=0x%02X\r\n",
+			 (unsigned)r->board_id,
+			 (unsigned)MOTOR_CMD_VECTOR_COMMIT);
+	#endif
+
 
   if (MotorScheduler_WaitDoneOrFault(r->board_id,
                                      MOTOR_CMD_VECTOR_COMMIT,
                                      MOTOR_SCHED_VECTOR_DONE_TIMEOUT_MS) == 0U)
   {
+	#if DEBUG_MOTOR_VECTOR
+
+		printf("VECTOR FAIL: COMMIT DONE/FAULT failed board=%u\r\n",
+			   (unsigned)r->board_id);
+	#endif
+
     MotorStateModel_RecordFault(r->board_id, 0xFFU);
     return 0U;
   }
+	#if DEBUG_MOTOR_VECTOR
+
+	  printf("VECTOR: DONE ok board=%u count=%u\r\n",
+			 (unsigned)r->board_id,
+			 (unsigned)count);
+	#endif
 
   MotorStateModel_ApplyVectorMove(r->board_id, r->u.vector.item, count);
+
   return 1U;
 }
 /*--------------------------------------------------------------------------------*/

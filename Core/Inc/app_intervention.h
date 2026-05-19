@@ -24,7 +24,11 @@ uint8_t AppIntervention_Reject(uint32_t plan_id);
 /*----------------------------------------------------------------------------*/
 // === called by motor_scheduler when tagged intervention execution ends ===
 void AppIntervention_OnMotorExecutionDone(uint32_t plan_id, uint8_t ok);
-/*----------------------------------------------------------------------------*/
+/*--------------------------------------------------------------------------------*/
+// === intervention runtime state ===
+// وضعیت فعلی lifecycle intervention برای UI/telemetry/debug.
+AppInterventionState_t AppIntervention_GetState(void);
+/*--------------------------------------------------------------------------------*/
 
 /*----------------------------------------------------------------------------*/
 

@@ -66,6 +66,9 @@
 // UI/پرستار تصمیم نهایی اجرای plan را می‌گیرد.
 #define PKT_TYPE_INTERVENTION_APPROVE   0x52
 #define PKT_TYPE_INTERVENTION_REJECT    0x53
+// === Main -> UI intervention lifecycle result ===
+// نتیجه اجرای intervention بعد از approve/reject
+#define PKT_TYPE_INTERVENTION_RESULT    0x54
 /*----------------------------------------------------------------------------*/
 // === ارسال snapshot کامل تخت (32×16) ===
 void UartPkt_SendBedSnapshot(uint16_t frame_id,
@@ -118,6 +121,15 @@ void UartPkt_SendBedStatus(uint16_t bed_cycle,
 void UartPkt_SendNodeHealth(uint16_t bed_cycle,
                             const uint8_t node_state[NODES]);
 /*----------------------------------------------------------------------------*/
+// === intervention result packet ===
+// ارسال وضعیت lifecycle intervention به UI.
+void UartPkt_SendInterventionResult(uint32_t plan_id,
+                                    uint8_t state,
+                                    uint8_t board_id,
+                                    uint8_t motor_count);
+/*--------------------------------------------------------------------------------*/
+
+
 //void UartPkt_SendNode32(uint8_t node,uint16_t cycle,uint8_t flags,uint8_t *data);    // ASCI Data
 /*----------------------------------------------------------------------------*/
 void UartPkt_Init(void);

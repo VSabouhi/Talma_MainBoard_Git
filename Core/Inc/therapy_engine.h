@@ -88,6 +88,10 @@ const TherapyPlan_t *TherapyEngine_GetPendingPlan(const TherapyEngineState_t *st
 
 void TherapyEngine_RejectPendingPlan(TherapyEngineState_t *st);
 
+// === clear pending plan after approval/execution handoff ===
+// این reject نیست؛ فقط plan از pending approval خارج می‌شود.
+void TherapyEngine_ClearPendingPlan(TherapyEngineState_t *st);
+
 // این تابع بعداً با approval از UI صدا زده می‌شود.
 // فعلاً هیچ جای اتوماتیکی نباید این را صدا بزند.
 uint8_t TherapyEngine_ApproveAndExecutePendingPlan(TherapyEngineState_t *st);

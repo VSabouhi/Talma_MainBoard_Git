@@ -358,6 +358,52 @@ void UartPkt_SendInterventionPlan(const TherapyPlan_t *p)
   HAL_UART_Transmit(&huart4, pkt, k, 100);
 }
 /*----------------------------------------------------------------------------*/
+// === INTERVENTION RESULT UART PACKET ===
+// این packet وضعیت lifecycle اجرای intervention را به UI می‌فرستد.
+//
+// Packet 0x54:
+// [0] SOF0
+// [1] SOF1
+// [2] TYPE = 0x54
+// [3] SEQ
+// [4] plan_id L
+// [5] plan_id H
+// [6] plan_id HH
+// [7] plan_id HHH
+// [8] state
+// [9] board_id
+// [10] motor_count
+// [11] CRC0
+// [12] CRC1
+void UartPkt_SendInterventionResult(uint32_t plan_id,
+                                    uint8_t state,
+                                    uint8_t board_id,
+                                    uint8_t motor_count)
+{
+  uint8_t pkt[13];
+  uint8_t k = 0U;
+
+  pkt[k++] = PKT_SOF0;
+  pkt[k++] = PKT_SOF1;
+  pkt[k++] = PKT_TYPE_INTERVENTION_RESULT;
+  pkt[k++] = g_seq++;
+
+  pkt[k++] = (uint8_t)(plan_id & 0xFFU);
+  pkt[k++] = (uint8_t)((plan_id >> 8) & 0xFFU);
+  pkt[k++] = (uint8_t)((plan_id >> 16) & 0xFFU);
+  pkt[k++] = (uint8_t)((plan_id >> 24) & 0xFFU);
+
+  pkt[k++] = state;
+  pkt[k++] = board_id;
+  pkt[k++] = motor_count;
+
+  pkt[k++] = PKT_CRC0;
+  pkt[k++] = PKT_CRC1;
+
+  HAL_UART_Transmit(&huart4, pkt, k, 100);
+}
+/*----------------------------------------------------------------------------*/
+/*----------------------------------------------------------------------------*/
 // === UI intervention approval packet ===
 // Packet:
 // AA 55 52 seq planL planH crc0 crc1

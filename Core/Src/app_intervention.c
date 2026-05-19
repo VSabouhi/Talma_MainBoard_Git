@@ -2,6 +2,7 @@
 #include "therapy_engine.h"
 #include <stdio.h>
 #include "motor_scheduler.h"
+#include "Serial_link.h"
 /*----------------------------------------------------------------------------*/
 
 // g_therapy داخل freertos.c تعریف شده است.
@@ -61,10 +62,23 @@ uint8_t AppIntervention_Approve(uint32_t plan_id)
 
   TherapyEngine_ClearPendingPlan(&g_therapy);
 
+
+  // === intervention lifecycle ===
+  // plan approve شده و اجرای vector شروع می‌شود.
+  g_app_intervention.state = APP_INTERVENTION_EXECUTING;
+
   printf("APP INTERVENTION: executing id=%lu board=%u motors=%u\r\n",
          (unsigned long)plan_id,
          (unsigned)g_app_intervention.board_id,
          (unsigned)g_app_intervention.motor_count);
+
+  // === notify UI: intervention is executing ===
+  // UI باید بداند action بعد از approval وارد اجرای واقعی شده است.
+  SerialLink_SendInterventionResult_Async(
+      g_app_intervention.plan_id,
+      g_app_intervention.state,
+      g_app_intervention.board_id,
+      g_app_intervention.motor_count);
 
   return 1U;
 }
@@ -84,8 +98,23 @@ uint8_t AppIntervention_Reject(uint32_t plan_id)
 
   TherapyEngine_RejectPendingPlan(&g_therapy);
 
+  // === intervention lifecycle ===
+  // plan توسط UI/پرستار reject شده است.
+  g_app_intervention.active = 1U;
+  g_app_intervention.plan_id = plan_id;
+  g_app_intervention.state = APP_INTERVENTION_REJECTED;
+  g_app_intervention.board_id = 0U;
+  g_app_intervention.motor_count = 0U;
+
   printf("APP INTERVENTION: rejected id=%lu\r\n",
          (unsigned long)plan_id);
+
+  // === notify UI: intervention rejected ===
+  SerialLink_SendInterventionResult_Async(
+      g_app_intervention.plan_id,
+      g_app_intervention.state,
+      g_app_intervention.board_id,
+      g_app_intervention.motor_count);
 
   return 1U;
 }
@@ -112,11 +141,28 @@ void AppIntervention_OnMotorExecutionDone(uint32_t plan_id, uint8_t ok)
     printf("APP INTERVENTION: failed id=%lu\r\n",
            (unsigned long)plan_id);
   }
+
+
+  // === notify UI: intervention execution result ===
+  // نتیجه نهایی اجرای motor vector به UI ارسال می‌شود.
+  SerialLink_SendInterventionResult_Async(
+      g_app_intervention.plan_id,
+      g_app_intervention.state,
+      g_app_intervention.board_id,
+      g_app_intervention.motor_count);
 }
 /*----------------------------------------------------------------------------*/
 
+/*--------------------------------------------------------------------------------*/
 /*----------------------------------------------------------------------------*/
-
+// === intervention runtime state getter ===
+// وضعیت فعلی lifecycle intervention را برمی‌گرداند.
+AppInterventionState_t AppIntervention_GetState(void)
+{
+  return (AppInterventionState_t)g_app_intervention.state;
+}
+/*----------------------------------------------------------------------------*/
+/*--------------------------------------------------------------------------------*/
 /*----------------------------------------------------------------------------*/
 
 /*----------------------------------------------------------------------------*/

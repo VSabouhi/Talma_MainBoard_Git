@@ -307,6 +307,10 @@ void Error_Handler(void);
 
 #define ENABLE_NODE1_TEST_CMD_TASK   0
 
+// DEBUG:
+// برای تست دریافت command از UI، موقتاً ارسال سنگین UI را خاموش می‌کنیم.
+#define ENABLE_UI_STREAM_TX   0
+
 
 /* USER CODE END Private defines */
 

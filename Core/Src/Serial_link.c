@@ -206,6 +206,38 @@ void SerialLink_TxTask(void *argument)
           // === نوع پیام ناشناخته: فعلاً نادیده بگیر ===
           break;
       }
+
+      // === UART TX pacing ===
+      // UI command RX روی همین UART می‌آید.
+      // بنابراین بعد از هر packet کمی فاصله می‌دهیم تا خط UART کاملاً اشباع نشود.
+      switch (m.type)
+      {
+        case SL_MSG_TYPE_BED_SNAPSHOT:
+        case SL_MSG_TYPE_BED_STATUS:
+          // packetهای 522 بایتی سنگین هستند
+          osDelay(20);
+          break;
+
+        case SL_MSG_TYPE_NODE32:
+          // packet حدود 42 بایت است
+          osDelay(3);
+          break;
+
+        case SL_MSG_TYPE_NODE_HEALTH:
+        case SL_MSG_TYPE_SUMMARY:
+        case SL_MSG_TYPE_INTERVENTION_PLAN:
+        case SL_MSG_TYPE_INTERVENTION_RESULT:
+          // === ارسال وضعیت اجرای intervention به UI ===
+          UartPkt_SendInterventionResult(
+              m.payload.intervention_result.plan_id,
+              m.payload.intervention_result.state,
+              m.payload.intervention_result.board_id,
+              m.payload.intervention_result.motor_count);
+          break;
+        default:
+          osDelay(5);
+          break;
+      }
     }
   }
 }
@@ -341,7 +373,48 @@ BaseType_t SerialLink_SendInterventionPlan_Async(const TherapyPlan_t *plan)
   return pdPASS;
 }
 /*----------------------------------------------------------------------------*/
-/*----------------------------------------------------------------------------*/
+BaseType_t SerialLink_SendInterventionResult_Async(uint32_t plan_id,
+                                                   uint8_t state,
+                                                   uint8_t board_id,
+                                                   uint8_t motor_count)
+{
+  SL_Msg m;
+
+  // === intervention result message ===
+  // این پیام lifecycle اجرای intervention را به UI می‌فرستد.
+  m.type = SL_MSG_TYPE_INTERVENTION_RESULT;
+
+  m.payload.intervention_result.plan_id = plan_id;
+  m.payload.intervention_result.state = state;
+  m.payload.intervention_result.board_id = board_id;
+  m.payload.intervention_result.motor_count = motor_count;
+
+  if (qSerialTx == NULL)
+    return pdFAIL;
+
+  if (xQueueSend(qSerialTx, &m, 0) != pdPASS)
+  {
+    SL_Msg dummy;
+    xQueueReceive(qSerialTx, &dummy, 0);
+
+    if (xQueueSend(qSerialTx, &m, 0) != pdPASS)
+    {
+      sl_tx_dropped++;
+      return pdFAIL;
+    }
+  }
+
+  // DEBUG:
+  // بررسی ارسال result lifecycle به UI.
+  printf("SERIAL LINK: send intervention result id=%lu state=%u board=%u motors=%u\r\n",
+         (unsigned long)plan_id,
+         (unsigned)state,
+         (unsigned)board_id,
+         (unsigned)motor_count);
+
+  return pdPASS;
+}
+/*----------------------------------------------------------------------------*//*----------------------------------------------------------------------------*/
 // === SerialLink RX task ===
 // دریافت packetهای approve/reject از UI روی همان UART لینک UI.
 //
@@ -364,15 +437,13 @@ void SerialLink_RxTask(void *argument)
 
   for (;;)
   {
-	  // DEBUG:
-	  // timeout طولانی‌تر برای تست packet دستی از serial tool
-	  if (HAL_UART_Receive(&huart4, &b, 1U, 100) != HAL_OK)
+	  // === receive one UI command byte ===
+	  // timeout کوتاه نگه داشته شده تا task responsive بماند.
+	  if (HAL_UART_Receive(&huart4, &b, 1U, 20) != HAL_OK)
     {
       osDelay(1);
       continue;
     }
-
-
 
     if (idx == 0U)
     {
@@ -380,7 +451,8 @@ void SerialLink_RxTask(void *argument)
         continue;
 
       pkt[idx++] = b;
-      continue;
+
+     continue;
     }
 
     if (idx == 1U)
