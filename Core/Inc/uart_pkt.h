@@ -69,6 +69,8 @@
 // === Main -> UI intervention lifecycle result ===
 // نتیجه اجرای intervention بعد از approve/reject
 #define PKT_TYPE_INTERVENTION_RESULT    0x54
+
+#define PKT_TYPE_DEBUG_COMMAND 0x5A
 /*----------------------------------------------------------------------------*/
 // === ارسال snapshot کامل تخت (32×16) ===
 void UartPkt_SendBedSnapshot(uint16_t frame_id,
@@ -146,5 +148,17 @@ uint8_t UartPkt_ParseInterventionReject(const uint8_t *pkt,
                                         uint16_t len,
                                         uint32_t *plan_id);
 /*----------------------------------------------------------------------------*/
+uint8_t UartPkt_ParseDebugCommand(const uint8_t *pkt,
+                                  uint16_t len,
+                                  uint8_t *command_id,
+                                  uint16_t *param);
+/*----------------------------------------------------------------------------*/
+
+/*----------------------------------------------------------------------------*/
+
+/*----------------------------------------------------------------------------*/
+
+/*----------------------------------------------------------------------------*/
+
 
 #endif /* INC_UART_PKT_H_ */

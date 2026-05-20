@@ -17,6 +17,12 @@
 #define SL_MSG_TYPE_SUMMARY        5U   // summary packet for UI
 #define SL_MSG_TYPE_INTERVENTION_PLAN  6U
 #define SL_MSG_TYPE_INTERVENTION_RESULT 7U
+/* Fake/test UI plan packet */
+#define SL_MSG_TYPE_FAKE_UI_PLAN  8U
+/* Fake/test UI plan packet.
+ * Used only for DEBUG_COMMAND response.
+ */
+#define SL_MSG_TYPE_FAKE_UI_PLAN   8U
 /*----------------------------------------------------------------------------*/
 // === node32 payload ===
 // payload مربوط به یک نود (32 سنسور)

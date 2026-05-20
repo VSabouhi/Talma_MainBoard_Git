@@ -456,7 +456,29 @@ uint8_t UartPkt_ParseInterventionReject(const uint8_t *pkt,
   return 1U;
 }
 /*----------------------------------------------------------------------------*/
+uint8_t UartPkt_ParseDebugCommand(const uint8_t *pkt,
+                                  uint16_t len,
+                                  uint8_t *command_id,
+                                  uint16_t *param)
+{
+  if ((pkt == 0) || (command_id == 0) || (param == 0))
+    return 0U;
 
+  if (len < 9U)
+    return 0U;
+
+  if (pkt[0] != PKT_SOF0) return 0U;
+  if (pkt[1] != PKT_SOF1) return 0U;
+  if (pkt[2] != PKT_TYPE_DEBUG_COMMAND) return 0U;
+  if (pkt[7] != PKT_CRC0) return 0U;
+  if (pkt[8] != PKT_CRC1) return 0U;
+
+  *command_id = pkt[4];
+  *param = ((uint16_t)pkt[5]) |
+           (((uint16_t)pkt[6]) << 8);
+
+  return 1U;
+}
 /*----------------------------------------------------------------------------*/
 
 /*----------------------------------------------------------------------------*/

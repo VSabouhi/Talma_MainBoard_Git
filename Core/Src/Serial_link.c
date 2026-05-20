@@ -9,6 +9,7 @@
 #include "usart.h"
 #include "cmsis_os.h"
 #include "app_intervention.h"
+#include "therapy_engine.h"
 /*----------------------------------------------------------------------------*/
 
 
@@ -16,6 +17,18 @@
 
 QueueHandle_t qSerialTx = NULL;
 static volatile uint32_t sl_tx_dropped = 0;
+/* --------------------------------------------------------------------------
+ * Fake UI intervention state.
+ *
+ * Used only for UI integration test:
+ *   0x5A debug command -> fake 0x51 plan
+ *   0x52 approve       -> fake 0x54 EXECUTING / COMPLETED
+ *   0x53 reject        -> fake 0x54 REJECTED
+ *
+ * This does NOT run real motor scheduler.
+ * -------------------------------------------------------------------------- */
+static volatile uint8_t  g_fake_ui_plan_pending = 0U;
+static volatile uint32_t g_fake_ui_plan_id = 0U;
 /*----------------------------------------------------------------------------*/
 // === serial TX queue configuration ===
 #define SERIAL_TX_QUEUE_LEN  32
@@ -23,6 +36,13 @@ static volatile uint32_t sl_tx_dropped = 0;
 static StaticQueue_t qSerialTxCtrl;
 // === حافظه صف UART TX بر اساس پیام generic ===
 static uint8_t qSerialTxStorage[SERIAL_TX_QUEUE_LEN * sizeof(SL_Msg)];
+/* --------------------------------------------------------------------------
+ * Serial stream pause flag
+ *
+ * Used by UI debug command to temporarily stop periodic/large packets
+ * before sending fake intervention plan.
+ * -------------------------------------------------------------------------- */
+static volatile uint8_t g_serial_stream_paused = 0U;
 /*----------------------------------------------------------------------------*/
 void SerialLink_Init(void)
 {
@@ -42,6 +62,11 @@ uint32_t SerialLink_TxDropped(void) { return sl_tx_dropped; }
 BaseType_t SerialLink_SendBedStatus_Async(uint16_t bed_cycle)
 {
   SL_Msg m;
+  /* --------------------------------------------------------------------------
+   * If stream is paused, skip normal periodic packets.
+   * Debug/control packets must still be allowed.
+   * -------------------------------------------------------------------------- */
+
 
   // === این پیام از نوع bed status است ===
   m.type = SL_MSG_TYPE_BED_STATUS;
@@ -72,6 +97,12 @@ BaseType_t SerialLink_SendBedSnapshot_Async(uint16_t bed_cycle)
 {
   SL_Msg m;
 
+  /* --------------------------------------------------------------------------
+   * If stream is paused, skip normal periodic packets.
+   * Debug/control packets must still be allowed.
+   * -------------------------------------------------------------------------- */
+
+
   // === این پیام از نوع snapshot کامل تخت است ===
   m.type = SL_MSG_TYPE_BED_SNAPSHOT;
 
@@ -99,6 +130,12 @@ BaseType_t SerialLink_SendBedSnapshot_Async(uint16_t bed_cycle)
 BaseType_t SerialLink_SendNode32_Async(uint8_t node, uint16_t cycle, uint8_t flags, const uint8_t s32[32])
 {
   SL_Msg m;
+
+  /* --------------------------------------------------------------------------
+   * If stream is paused, skip normal periodic packets.
+   * Debug/control packets must still be allowed.
+   * -------------------------------------------------------------------------- */
+
 
   // === این پیام از نوع node32 است ===
   m.type = SL_MSG_TYPE_NODE32;
@@ -202,6 +239,70 @@ void SerialLink_TxTask(void *argument)
 
           break;
 
+        case SL_MSG_TYPE_FAKE_UI_PLAN:
+        {
+          /* --------------------------------------------------------------------------
+           * Send fake/test UI PLAN packet.
+           *
+           * This runs only inside SerialLink_TxTask, so packet ordering is safe:
+           *   previous packet ... 12 34
+           *   AA 55 51 ...
+           *   next packet AA 55 ...
+           * -------------------------------------------------------------------------- */
+
+          uint8_t tx[15];
+
+          tx[0]  = PKT_SOF0;
+          tx[1]  = PKT_SOF1;
+          tx[2]  = 0x51U;
+          tx[3]  = 0x00U;
+
+          tx[4]  = 0x01U;
+          tx[5]  = 0x00U;
+          tx[6]  = 0x02U;
+          tx[7]  = 0x03U;
+          tx[8]  = 0x0CU;
+          tx[9]  = 0x80U;
+          tx[10] = 0x03U;
+          tx[11] = 0x01U;
+          tx[12] = 0x02U;
+
+          tx[13] = PKT_CRC0;
+          tx[14] = PKT_CRC1;
+
+          HAL_UART_Transmit(&huart4, tx, sizeof(tx), 100);
+
+          printf("UI DEBUG TX: fake 0x51 plan sent\r\n");
+
+          char raw_log[128];
+
+          snprintf(raw_log,
+                   sizeof(raw_log),
+                   "raw = "
+                   "%02X %02X %02X %02X %02X "
+                   "%02X %02X %02X %02X %02X "
+                   "%02X %02X %02X %02X %02X\r\n",
+                   tx[0], tx[1], tx[2], tx[3], tx[4],
+                   tx[5], tx[6], tx[7], tx[8], tx[9],
+                   tx[10], tx[11], tx[12], tx[13], tx[14]);
+
+          printf("%s", raw_log);
+
+          break;
+        }
+
+        case SL_MSG_TYPE_INTERVENTION_RESULT:
+          /* --------------------------------------------------------------------------
+           * Send intervention lifecycle result to UI.
+           * Packet type: 0x54
+           * -------------------------------------------------------------------------- */
+          UartPkt_SendInterventionResult(
+              m.payload.intervention_result.plan_id,
+              m.payload.intervention_result.state,
+              m.payload.intervention_result.board_id,
+              m.payload.intervention_result.motor_count);
+          break;
+
         default:
           // === نوع پیام ناشناخته: فعلاً نادیده بگیر ===
           break;
@@ -227,14 +328,17 @@ void SerialLink_TxTask(void *argument)
         case SL_MSG_TYPE_SUMMARY:
         case SL_MSG_TYPE_INTERVENTION_PLAN:
         case SL_MSG_TYPE_INTERVENTION_RESULT:
-          // === ارسال وضعیت اجرای intervention به UI ===
-          UartPkt_SendInterventionResult(
-              m.payload.intervention_result.plan_id,
-              m.payload.intervention_result.state,
-              m.payload.intervention_result.board_id,
-              m.payload.intervention_result.motor_count);
+        case SL_MSG_TYPE_FAKE_UI_PLAN:
+          /* Short pacing only */
+          osDelay(2);
           break;
-        default:
+          /* --------------------------------------------------------------------------
+           * UART TX pacing only.
+           *
+           * IMPORTANT:
+           * Do NOT send any packet here.
+           * Actual packet transmission must happen only in the main switch above.
+           * -------------------------------------------------------------------------- */
           osDelay(5);
           break;
       }
@@ -245,6 +349,12 @@ void SerialLink_TxTask(void *argument)
 BaseType_t SerialLink_SendNodeHealth_Async(uint16_t bed_cycle)
 {
   SL_Msg m;
+
+  /* --------------------------------------------------------------------------
+   * If stream is paused, skip normal periodic packets.
+   * Debug/control packets must still be allowed.
+   * -------------------------------------------------------------------------- */
+
 
   // === این پیام از نوع node health است ===
   m.type = SL_MSG_TYPE_NODE_HEALTH;
@@ -296,6 +406,12 @@ BaseType_t SerialLink_SendSummary_Async(uint16_t frame_id,
 										uint8_t summary_flags)
 {
   SL_Msg m;
+
+  /* --------------------------------------------------------------------------
+   * If stream is paused, skip normal periodic packets.
+   * Debug/control packets must still be allowed.
+   * -------------------------------------------------------------------------- */
+
 
   // === این پیام از نوع summary است ===
   m.type = SL_MSG_TYPE_SUMMARY;
@@ -437,9 +553,13 @@ void SerialLink_RxTask(void *argument)
 
   for (;;)
   {
-	  // === receive one UI command byte ===
-	  // timeout کوتاه نگه داشته شده تا task responsive بماند.
-	  if (HAL_UART_Receive(&huart4, &b, 1U, 20) != HAL_OK)
+	  /* --------------------------------------------------------------------------
+	   * UI command RX is temporarily moved to UART3.
+	   *
+	   * UART4 remains for normal online data stream TX.
+	   * UART3 is used only to receive UI commands during debug/testing.
+	   * -------------------------------------------------------------------------- */
+	  if (HAL_UART_Receive(&huart3, &b, 1U, 20) != HAL_OK)
     {
       osDelay(1);
       continue;
@@ -451,8 +571,7 @@ void SerialLink_RxTask(void *argument)
         continue;
 
       pkt[idx++] = b;
-
-     continue;
+      continue;
     }
 
     if (idx == 1U)
@@ -474,16 +593,31 @@ void SerialLink_RxTask(void *argument)
 
     idx = 0U;
 
-    // DEBUG:
-    // فقط وقتی 8 بایت کامل دریافت شد چاپ می‌کنیم.
-    // DEBUG: show received UI command packet
+    /* ----------------------------------------------------------------------
+     * DEBUG:
+     * Print complete 8-byte UI command packet.
+     * ---------------------------------------------------------------------- */
     printf("UI RX PKT: %02X %02X %02X %02X %02X %02X %02X %02X\r\n",
            pkt[0], pkt[1], pkt[2], pkt[3],
            pkt[4], pkt[5], pkt[6], pkt[7]);
 
+    /* ----------------------------------------------------------------------
+     * Footer check:
+     * All current UI command packets are 8 bytes:
+     *   AA 55 TYPE SEQ B4 B5 12 34
+     * ---------------------------------------------------------------------- */
     if (pkt[6] != PKT_CRC0) continue;
     if (pkt[7] != PKT_CRC1) continue;
 
+    /* ----------------------------------------------------------------------
+     * Approve/Reject plan_id format:
+     *   pkt[4] = plan_id low
+     *   pkt[5] = plan_id high
+     *
+     * For DEBUG_COMMAND:
+     *   pkt[4] = command_id
+     *   pkt[5] = param
+     * ---------------------------------------------------------------------- */
     plan_id =
         ((uint32_t)pkt[4]) |
         (((uint32_t)pkt[5]) << 8);
@@ -493,8 +627,68 @@ void SerialLink_RxTask(void *argument)
       printf("UI CMD: approve id=%lu\r\n",
              (unsigned long)plan_id);
 
-      // === execute only after UI approval ===
-      // مسئولیت action از مسیر UI/پرستار وارد سیستم می‌شود.
+
+
+      /* --------------------------------------------------------------------------
+       * Fake UI plan approve path.
+       *
+       * If the current plan was created by DEBUG_COMMAND, do NOT call real
+       * AppIntervention_Approve(), because that expects a real TherapyEngine plan
+       * and may trigger motor scheduling.
+       * -------------------------------------------------------------------------- */
+      if ((g_fake_ui_plan_pending != 0U) &&
+          (g_fake_ui_plan_id == plan_id))
+      {
+        g_fake_ui_plan_pending = 0U;
+
+        SerialLink_SendInterventionResult_Async(
+            plan_id,
+            APP_INTERVENTION_EXECUTING,
+            2U,
+            12U);
+
+        SerialLink_SendInterventionResult_Async(
+            plan_id,
+            APP_INTERVENTION_COMPLETED,
+            2U,
+            12U);
+
+        continue;
+      }
+
+
+
+      /* --------------------------------------------------------------------------
+       * Fake UI approve path.
+       *
+       * If plan was created by DEBUG_COMMAND, answer UI with RESULT packets
+       * without touching real TherapyEngine / MotorScheduler.
+       * -------------------------------------------------------------------------- */
+      if ((g_fake_ui_plan_pending != 0U) &&
+          (g_fake_ui_plan_id == plan_id))
+      {
+        g_fake_ui_plan_pending = 0U;
+
+        /* state = 1 : EXECUTING */
+        SerialLink_SendInterventionResult_Async(
+            plan_id,
+            APP_INTERVENTION_EXECUTING,
+            2U,
+            12U);
+
+        /* state = 2 : COMPLETED */
+        SerialLink_SendInterventionResult_Async(
+            plan_id,
+            APP_INTERVENTION_COMPLETED,
+            2U,
+            12U);
+
+        continue;
+      }
+      /* --------------------------------------------------------------------
+       * Execute only after UI approval.
+       * Operator/nurse approval enters the system from UI path.
+       * -------------------------------------------------------------------- */
       AppIntervention_Approve(plan_id);
     }
     else if (pkt[2] == PKT_TYPE_INTERVENTION_REJECT)
@@ -502,8 +696,110 @@ void SerialLink_RxTask(void *argument)
       printf("UI CMD: reject id=%lu\r\n",
              (unsigned long)plan_id);
 
-      // === reject pending intervention plan ===
+
+
+      /* --------------------------------------------------------------------------
+       * Fake UI plan reject path.
+       * -------------------------------------------------------------------------- */
+      if ((g_fake_ui_plan_pending != 0U) &&
+          (g_fake_ui_plan_id == plan_id))
+      {
+        g_fake_ui_plan_pending = 0U;
+
+        SerialLink_SendInterventionResult_Async(
+            plan_id,
+            APP_INTERVENTION_REJECTED,
+            2U,
+            12U);
+
+        continue;
+      }
+
+
+      /* --------------------------------------------------------------------------
+       * Fake UI reject path.
+       *
+       * If plan was created by DEBUG_COMMAND, answer UI with REJECTED result
+       * without touching real TherapyEngine / MotorScheduler.
+       * -------------------------------------------------------------------------- */
+      if ((g_fake_ui_plan_pending != 0U) &&
+          (g_fake_ui_plan_id == plan_id))
+      {
+        g_fake_ui_plan_pending = 0U;
+
+        /* state = 4 : REJECTED */
+        SerialLink_SendInterventionResult_Async(
+            plan_id,
+            APP_INTERVENTION_REJECTED,
+            2U,
+            12U);
+
+        continue;
+      }
+      /* --------------------------------------------------------------------
+       * Reject pending intervention plan.
+       *
+       * RX:
+       *   AA 55 53 SEQ planL planH 12 34
+       * -------------------------------------------------------------------- */
       AppIntervention_Reject(plan_id);
+    }
+    else if (pkt[2] == PKT_TYPE_DEBUG_COMMAND)
+    {
+      uint8_t command_id = pkt[4];
+      uint8_t param = pkt[5];
+
+      printf("UI CMD: debug cmd=%u param=%u\r\n",
+             (unsigned)command_id,
+             (unsigned)param);
+
+      if (command_id == 1U)
+      {
+
+
+
+    	  /* --------------------------------------------------------------------------
+    	   * Mark fake plan as pending so approve/reject can be tested by UI.
+    	   * param is the fake plan_id.
+    	   * -------------------------------------------------------------------------- */
+    	  g_fake_ui_plan_pending = 1U;
+    	  g_fake_ui_plan_id = (uint32_t)param;
+    	  /* --------------------------------------------------------------------------
+    	   * CMD 1:
+    	   * Queue fake UI PLAN with priority.
+    	   *
+    	   * IMPORTANT:
+    	   * We do NOT transmit directly from RX task.
+    	   * We also do NOT pause the normal stream.
+    	   *
+    	   * xQueueSendToFront() makes fake 0x51 the next packet after the currently
+    	   * transmitting packet is fully completed by SerialLink_TxTask.
+    	   * -------------------------------------------------------------------------- */
+    	  SL_Msg m;
+    	  m.type = SL_MSG_TYPE_FAKE_UI_PLAN;
+
+    	  if (qSerialTx != NULL)
+    	  {
+    	    if (xQueueSendToFront(qSerialTx, &m, 0) != pdPASS)
+    	    {
+    	      /* If queue is full, drop one old normal packet and retry once */
+    	      SL_Msg dummy;
+    	      xQueueReceive(qSerialTx, &dummy, 0);
+
+    	      if (xQueueSendToFront(qSerialTx, &m, 0) != pdPASS)
+    	      {
+    	        sl_tx_dropped++;
+
+    	        printf("UI DEBUG TX: fake 0x51 priority enqueue failed\r\n");
+    	      }
+    	    }
+    	  }
+    	  else
+    	  {
+    	    printf("UI DEBUG TX: qSerialTx is NULL\r\n");
+    	  }
+
+      }
     }
     else
     {

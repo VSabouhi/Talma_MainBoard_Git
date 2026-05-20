@@ -71,6 +71,12 @@ typedef struct
   uint32_t blocked_count;       // دفعات block به دلیل cooldown/شرایط ناکافی
   TherapyPlan_t pending_plan;   // آخرین plan منتظر تایید
 } TherapyEngineState_t;
+
+
+/* --------------------------------------------------------------------------
+ * Global therapy engine instance
+ * -------------------------------------------------------------------------- */
+extern TherapyEngineState_t g_therapy;
 /*--------------------------------------------------------------------------------*/
 
 void TherapyEngine_Init(TherapyEngineState_t *st);
@@ -101,7 +107,9 @@ uint8_t TherapyEngine_ApproveAndExecutePendingPlan(TherapyEngineState_t *st);
 uint8_t TherapyEngine_HasPendingPlanId(const TherapyEngineState_t *st,
                                        uint32_t plan_id);
 /*--------------------------------------------------------------------------------*/
-
+void TherapyEngine_DebugCreateUiTestPlan(TherapyEngineState_t *st,
+                                         uint32_t plan_id,
+                                         uint32_t now_ms);
 /*--------------------------------------------------------------------------------*/
 
 /*--------------------------------------------------------------------------------*/

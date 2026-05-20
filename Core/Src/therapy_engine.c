@@ -438,5 +438,45 @@ void TherapyEngine_DebugCreatePendingPlan(TherapyEngineState_t *st,
          (unsigned)st->pending_plan.motor_count);
 }
 /*--------------------------------------------------------------------------------*/
+void TherapyEngine_DebugCreateUiTestPlan(TherapyEngineState_t *st,
+                                         uint32_t plan_id,
+                                         uint32_t now_ms)
+{
+  if (st == 0)
+    return;
 
+  if (TherapyEngine_HasPendingPlan(st) != 0U)
+    return;
+
+  TherapyEngine_ClearPlan(&st->pending_plan);
+
+  st->pending_plan.valid = 1U;
+  st->pending_plan.status = THERAPY_PLAN_STATUS_PENDING_APPROVAL;
+  st->pending_plan.type = THERAPY_PLAN_OFFLOAD_SACRUM;
+  st->pending_plan.target_zone = ZONE_SACRUM;
+
+  st->pending_plan.board_id = 1U;
+  st->pending_plan.motor_count = 3U;
+
+  st->pending_plan.motors[0].idx = 0U;
+  st->pending_plan.motors[0].delta = 80;
+
+  st->pending_plan.motors[1].idx = 1U;
+  st->pending_plan.motors[1].delta = 80;
+
+  st->pending_plan.motors[2].idx = 2U;
+  st->pending_plan.motors[2].delta = 80;
+
+  st->pending_plan.risk_score = 128U;
+  st->pending_plan.risk_level = 3U;
+  st->pending_plan.recommendation_code = 1U;
+  st->pending_plan.reason_code = 2U;
+
+  st->pending_plan.created_ms = now_ms;
+  st->pending_plan.plan_id = plan_id;
+  st->pending_plan.ui_sent = 0U;
+
+  printf("THERAPY DEBUG: UI test plan created id=%lu\r\n",
+         (unsigned long)plan_id);
+}
 /*--------------------------------------------------------------------------------*/
