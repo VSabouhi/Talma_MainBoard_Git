@@ -2,6 +2,7 @@
 #include "uart_pkt.h"
 #include "usart.h"
 #include <string.h>
+#include <stdio.h>
 /*----------------------------------------------------------------------------*/
 // === STATIC TX BUFFERS (to avoid stack overflow) ===
 
@@ -111,7 +112,45 @@ void UartPkt_SendBedSnapshot(uint16_t bed_cycle,
   pkt[k++] = PKT_CRC0;
   pkt[k++] = PKT_CRC1;
 
-  HAL_UART_Transmit(&huart4, pkt, 522, 200);
+
+
+
+  /* --------------------------------------------------------------------------
+   * DEBUG:
+   * Print selected snapshot rows before UART TX.
+   * This verifies Main-side pattern generation.
+   * -------------------------------------------------------------------------- */
+  /*printf("BED SNAP DEBUG cycle=%u\r\n", bed_cycle);
+
+  for (uint8_t r = 0U; r < 32U; r += 4U)
+  {
+    printf("R%02u: ", r);
+
+    for (uint8_t c = 0U; c < 16U; c++)
+    {
+      printf("%02X ", bed_value[r][c]);
+    }
+
+    printf("\r\n");
+  }*/
+
+
+
+  /* --------------------------------------------------------------------------
+   * DEBUG:
+   * Verify BED_SNAPSHOT packet length and footer before UART TX.
+   * Must be exactly 522 bytes, sent in one HAL_UART_Transmit call.
+   * -------------------------------------------------------------------------- */
+  uint16_t total_len = k;
+
+  HAL_StatusTypeDef tx_status =
+      HAL_UART_Transmit(&huart4, pkt, total_len, 2000);
+
+  printf("SNAP LEN=%u TX=%d\r\n",
+         total_len,
+         (int)tx_status);
+
+
 }
 /*----------------------------------------------------------------------------*/
 // === ارسال نقشه وضعیت کل تخت به UI ===
@@ -159,7 +198,21 @@ void UartPkt_SendBedStatus(uint16_t bed_cycle,
   pkt[k++] = PKT_CRC0;
   pkt[k++] = PKT_CRC1;
 
-  HAL_UART_Transmit(&huart4, pkt, 522, 200);
+
+  /* --------------------------------------------------------------------------
+   * DEBUG:
+   * Verify BED_STATUS packet length and footer before UART TX.
+   * Must be exactly 522 bytes, sent in one HAL_UART_Transmit call.
+   * -------------------------------------------------------------------------- */
+  uint16_t total_len = k;
+
+  HAL_StatusTypeDef tx_status =
+      HAL_UART_Transmit(&huart4, pkt, total_len, 2000);
+
+  printf("STATUS LEN=%u TX=%d\r\n",
+         total_len,
+         (int)tx_status);
+
 }
 /*----------------------------------------------------------------------------*/
 // === ارسال وضعیت همه نودها به UI ===

@@ -304,7 +304,7 @@ static void TestPattern_AddBlob(uint8_t bed_value[BED_ROWS][BED_COLS],
         int add = (peak_value * (100 - score)) / 100;
 
         int v = bed_value[r][c] + add;
-        bed_value[r][c] = (uint8_t)TestPattern_ClampInt(v, 0, 63);
+        bed_value[r][c] = (uint8_t)TestPattern_ClampInt(v, 0, 50);
       }
     }
   }
@@ -411,8 +411,8 @@ static void TestPattern_FillSideLying(uint8_t bed_value[BED_ROWS][BED_COLS],
     {
       if (bed_value[r][c] < 5U)
         bed_value[r][c] = 2U;
-      if (bed_value[r][c] > 63U)
-        bed_value[r][c] = 63U;
+      if (bed_value[r][c] > 50U)
+        bed_value[r][c] = 50U;
     }
   }
 }

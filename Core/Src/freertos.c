@@ -926,10 +926,10 @@ static void UpdateExposureCounters(const ZoneAnalysisResult_t *zone_res, uint32_
 
   // === DEBUG: verify exposure counters are increasing ===
   // این print برای اینه که ببینیم counterها واقعا در MCU افزایش پیدا میکنن یا نه
-  printf("DBG EXP CNT: sac=%lu heel=%lu sh=%lu\r\n",
+ /* printf("DBG EXP CNT: sac=%lu heel=%lu sh=%lu\r\n",
          (unsigned long)g_sacrum_exposure_s,
          (unsigned long)g_heels_exposure_s,
-         (unsigned long)g_shoulders_exposure_s);
+         (unsigned long)g_shoulders_exposure_s);*/
 }
 /*--------------------------------------------------------------------------------*/
 

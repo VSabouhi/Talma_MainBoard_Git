@@ -180,10 +180,10 @@ void SerialLink_TxTask(void *argument)
       {
         case SL_MSG_TYPE_NODE32:
           // === ارسال packet مربوط به یک نود ===
-          UartPkt_SendNode32(m.payload.node32.node,
+         /* UartPkt_SendNode32(m.payload.node32.node,
                              m.payload.node32.cycle,
                              m.payload.node32.flags,
-                             m.payload.node32.s);
+                             m.payload.node32.s);*/
           break;
 
         case SL_MSG_TYPE_BED_SNAPSHOT:

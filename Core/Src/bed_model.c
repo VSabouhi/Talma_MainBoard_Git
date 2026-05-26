@@ -105,6 +105,23 @@ void BedSync_OnNodeUpdated(uint8_t node)
 		// === inject artificial bed pattern for UI testing ===
 		// این بخش فقط برای تست UI است و داده واقعی تخت را override می‌کند
 		TestPattern_Generate(bed_value, bed_status, bed_valid);
+
+		/* ----------------------------------------------------------------------
+		 * DEBUG / UI PATTERN TEST:
+		 *
+		 * Force all generated pattern cells to OK/valid.
+		 * This prevents UI from overlaying old/raw fault status as X marks
+		 * while bed_value is synthetic.
+		 * ---------------------------------------------------------------------- */
+		for (uint8_t r = 0U; r < BED_ROWS; r++)
+		{
+		  for (uint8_t c = 0U; c < BED_COLS; c++)
+		  {
+		    bed_status[r][c] = 0U;       /* OK */
+		    bed_valid[r][c] = 1U;        /* valid */
+		    bed_confidence[r][c] = 255U; /* full confidence */
+		  }
+		}
 	#endif
 
 
