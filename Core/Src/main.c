@@ -30,6 +30,7 @@
 #include "can_rtos_rx.h"
 #include "uart_pkt.h"
 #include "node_state.h"
+#include <stdio.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -244,6 +245,22 @@ int main(void)
   HAL_Delay(500);
 
 
+
+  /* --------------------------------------------------------------------------
+   * Load default therapy/risk configuration preset.
+   * -------------------------------------------------------------------------- */
+  TherapyRisk_LoadPreset(THERAPY_CONFIG_DEMO);
+
+  /* --------------------------------------------------------------------------
+   * DEBUG:
+   * Verify therapy/risk configuration preset was loaded correctly.
+   * -------------------------------------------------------------------------- */
+  printf("RISK CFG: demo=%u sac_th=%u watch=%u alert=%u critical=%u\r\n",
+         g_risk_cfg.demo_mode,
+         g_risk_cfg.pressure_threshold_sacrum,
+         g_risk_cfg.exposure_watch_s,
+         g_risk_cfg.exposure_alert_s,
+         g_risk_cfg.exposure_critical_s);
   /* USER CODE END 2 */
 
   /* Init scheduler */

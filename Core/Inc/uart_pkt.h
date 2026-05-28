@@ -71,6 +71,10 @@
 #define PKT_TYPE_INTERVENTION_RESULT    0x54
 
 #define PKT_TYPE_DEBUG_COMMAND 0x5A
+/* UI command: change therapy/risk preset */
+#define PKT_TYPE_RISK_CONFIG_PRESET   0x60U
+/* UI command: select synthetic test pattern */
+#define PKT_TYPE_TEST_PATTERN_SELECT  0x61U
 /*----------------------------------------------------------------------------*/
 // === ارسال snapshot کامل تخت (32×16) ===
 void UartPkt_SendBedSnapshot(uint16_t frame_id,

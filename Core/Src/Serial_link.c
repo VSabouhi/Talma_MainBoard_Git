@@ -10,6 +10,8 @@
 #include "cmsis_os.h"
 #include "app_intervention.h"
 #include "therapy_engine.h"
+#include "app_config.h"
+#include "test_pattern.h"
 /*----------------------------------------------------------------------------*/
 
 
@@ -799,6 +801,80 @@ void SerialLink_RxTask(void *argument)
     	    printf("UI DEBUG TX: qSerialTx is NULL\r\n");
     	  }
 
+      }
+    }
+    /* --------------------------------------------------------------------------
+     * RISK CONFIG PRESET COMMAND
+     *
+     * UI can change therapy/risk timing preset at runtime.
+     *
+     * RX packet:
+     *   AA 55 60 SEQ PRESET 00 12 34
+     *
+     * PRESET:
+     *   0 = THERAPY_CONFIG_DEMO
+     *   1 = THERAPY_CONFIG_CLINICAL_TEST
+     * -------------------------------------------------------------------------- */
+    else if (pkt[2] == PKT_TYPE_RISK_CONFIG_PRESET)
+    {
+      uint8_t preset_id = pkt[4];
+
+      printf("UI CMD: risk preset=%u\r\n",
+             (unsigned)preset_id);
+
+      if (preset_id == 0U)
+      {
+        TherapyRisk_LoadPreset(THERAPY_CONFIG_DEMO);
+
+        printf("RISK CFG: DEMO loaded watch=%u alert=%u critical=%u\r\n",
+               g_risk_cfg.exposure_watch_s,
+               g_risk_cfg.exposure_alert_s,
+               g_risk_cfg.exposure_critical_s);
+      }
+      else if (preset_id == 1U)
+      {
+        TherapyRisk_LoadPreset(THERAPY_CONFIG_CLINICAL_TEST);
+
+        printf("RISK CFG: CLINICAL_TEST loaded watch=%u alert=%u critical=%u\r\n",
+               g_risk_cfg.exposure_watch_s,
+               g_risk_cfg.exposure_alert_s,
+               g_risk_cfg.exposure_critical_s);
+      }
+      else
+      {
+        printf("RISK CFG: invalid preset=%u\r\n",
+               (unsigned)preset_id);
+      }
+    }
+    /* --------------------------------------------------------------------------
+     * TEST PATTERN SELECT COMMAND
+     *
+     * UI can select synthetic bed pattern at runtime.
+     *
+     * RX packet:
+     *   AA 55 61 SEQ PATTERN_ID 00 12 34
+     *
+     * PATTERN_ID:
+     *   Must match TestPatternMode_t enum values.
+     * -------------------------------------------------------------------------- */
+    else if (pkt[2] == PKT_TYPE_TEST_PATTERN_SELECT)
+    {
+      uint8_t pattern_id = pkt[4];
+
+      printf("UI CMD: test pattern id=%u\r\n",
+             (unsigned)pattern_id);
+
+      if (pattern_id <= (uint8_t)PATTERN_BODY_TURNING_CYCLE_SMOOTH)
+      {
+        TestPattern_SetMode((TestPatternMode_t)pattern_id);
+
+        printf("TEST PATTERN: mode changed to %u\r\n",
+               (unsigned)TestPattern_GetMode());
+      }
+      else
+      {
+        printf("TEST PATTERN: invalid mode=%u\r\n",
+               (unsigned)pattern_id);
       }
     }
     else

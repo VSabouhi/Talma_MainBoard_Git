@@ -43,6 +43,19 @@ typedef enum
 } TestPatternMode_t;
 
 
+/* --------------------------------------------------------------------------
+ * Runtime selected synthetic pattern.
+ *
+ * UI can change this value using packet 0x61.
+ * -------------------------------------------------------------------------- */
+extern TestPatternMode_t g_test_pattern_mode;
+
+/* --------------------------------------------------------------------------
+ * Change current test pattern at runtime.
+ * -------------------------------------------------------------------------- */
+void TestPattern_SetMode(TestPatternMode_t mode);
+TestPatternMode_t TestPattern_GetMode(void);
+
 // === currently selected synthetic pattern ===
 #define TEST_PATTERN_MODE   PATTERN_BODY_TURNING_CYCLE_SMOOTH
 

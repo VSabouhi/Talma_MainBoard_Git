@@ -6,6 +6,30 @@
 
 // === synthetic pattern metadata ===
 static TestPatternInfo_t g_pattern_info;
+/* --------------------------------------------------------------------------
+ * Current runtime test pattern mode.
+ *
+ * Default mode is used at startup.
+ * UI can change it later through UART command 0x61.
+ * -------------------------------------------------------------------------- */
+TestPatternMode_t g_test_pattern_mode = PATTERN_BODY_ADULT_NORMAL;
+
+
+/* --------------------------------------------------------------------------
+ * Set active synthetic pattern mode.
+ * -------------------------------------------------------------------------- */
+void TestPattern_SetMode(TestPatternMode_t mode)
+{
+  g_test_pattern_mode = mode;
+}
+
+/* --------------------------------------------------------------------------
+ * Get active synthetic pattern mode.
+ * -------------------------------------------------------------------------- */
+TestPatternMode_t TestPattern_GetMode(void)
+{
+  return g_test_pattern_mode;
+}
 
 /*----------------------------------------------------------*/
 /*----------------------------------------------------------*/
@@ -739,7 +763,10 @@ void TestPattern_Generate(uint8_t bed_value[BED_ROWS][BED_COLS],
                           uint8_t bed_status[BED_ROWS][BED_COLS],
                           uint8_t bed_valid[BED_ROWS][BED_COLS])
 {
-  switch (TEST_PATTERN_MODE)
+	/* --------------------------------------------------------------------------
+	 * Use runtime selected pattern instead of compile-time fixed mode.
+	 * -------------------------------------------------------------------------- */
+  switch (g_test_pattern_mode)
   {
     case PATTERN_GRADIENT_DEBUG:
       TestPattern_FillGradient(bed_value, bed_status, bed_valid);

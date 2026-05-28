@@ -621,18 +621,47 @@ void CanRxTask(void *argument)
         // الان در هر period فقط یکی از آن‌ها enqueue می‌شود.
         if ((now - last_summary_tx_ms) >= SUMMARY_FIXED_PERIOD_MS)
         {
-          uint16_t time_since_last_movement_s = 0xFFFFU;
+        	/* --------------------------------------------------------------------------
+        	 * TIME SINCE LAST MOVEMENT
+        	 *
+        	 * اگر هنوز هیچ movement معتبری ثبت نشده باشد، نباید 0xFFFF بفرستیم.
+        	 * چون این باعث می‌شود risk engine فکر کند بیمار مدت خیلی طولانی بی‌حرکت بوده.
+        	 *
+        	 * در startup:
+        	 *   no-movement time از صفر شروع می‌شود.
+        	 *
+        	 * بعداً اگر movement واقعی ثبت شد:
+        	 *   زمان از آخرین movement محاسبه می‌شود.
+        	 * -------------------------------------------------------------------------- */
+        	uint16_t time_since_last_movement_s = 0U;
 
-          if (g_movement.last_movement_ms != 0U)
-          {
-            uint32_t dt_ms = now - g_movement.last_movement_ms;
-            uint32_t dt_s = dt_ms / 1000U;
+        	if (g_movement.last_movement_ms != 0U)
+        	{
+        	  uint32_t dt_ms = now - g_movement.last_movement_ms;
+        	  uint32_t dt_s = dt_ms / 1000U;
 
-            if (dt_s > 0xFFFFU)
-              dt_s = 0xFFFFU;
+        	  if (dt_s > 0xFFFFU)
+        	  {
+        	    dt_s = 0xFFFFU;
+        	  }
 
-            time_since_last_movement_s = (uint16_t)dt_s;
-          }
+        	  time_since_last_movement_s = (uint16_t)dt_s;
+        	}
+        	else
+        	{
+        	  /* ------------------------------------------------------------------------
+        	   * No movement has been detected yet.
+        	   * Count immobility from system uptime instead of forcing 0xFFFF.
+        	   * ------------------------------------------------------------------------ */
+        	  uint32_t uptime_s32 = now / 1000U;
+
+        	  if (uptime_s32 > 0xFFFFU)
+        	  {
+        	    uptime_s32 = 0xFFFFU;
+        	  }
+
+        	  time_since_last_movement_s = (uint16_t)uptime_s32;
+        	}
 
           frame_id = ++ui_frame_id;
 
@@ -685,19 +714,176 @@ void CanRxTask(void *argument)
             case 3U:
             default:
             {
+
+
+            	/* --------------------------------------------------------------------------
+            	 * TIME-BASED RISK / ALERT GATING
+            	 *
+            	 * Heatmap و zone values لحظه‌ای هستند و همیشه به UI ارسال می‌شوند.
+            	 *
+            	 * اما risk / alert / recommendation نباید با اولین frame فعال شوند.
+            	 * این‌ها فقط وقتی فعال می‌شوند که exposure زمان کافی جمع کرده باشد.
+            	 *
+            	 * Config از g_risk_cfg خوانده می‌شود:
+            	 *   - DEMO mode: زمان‌های کوتاه برای تست UI
+            	 *   - CLINICAL_TEST mode: زمان‌های واقعی‌تر
+            	 * -------------------------------------------------------------------------- */
+
+            	/* بیشترین exposure بین نواحی مهم را مبنای risk کلی قرار می‌دهیم. */
+            	uint16_t max_exposure_s = (uint16_t)g_sacrum_exposure_s;
+
+            	if ((uint16_t)g_heels_exposure_s > max_exposure_s)
+            	{
+            	  max_exposure_s = (uint16_t)g_heels_exposure_s;
+            	}
+
+            	if ((uint16_t)g_shoulders_exposure_s > max_exposure_s)
+            	{
+            	  max_exposure_s = (uint16_t)g_shoulders_exposure_s;
+            	}
+
+            	/* --------------------------------------------------------------------------
+            	 * Default gated values:
+            	 * تا قبل از رسیدن exposure به threshold، UI باید risk/alert خاموش ببیند.
+            	 * -------------------------------------------------------------------------- */
+            	uint8_t gated_risk_score = 0U;
+            	uint8_t gated_risk_level = 0U;
+
+            	uint8_t gated_alert_active = 0U;
+            	uint8_t gated_alert_type = 0U;
+            	uint8_t gated_alert_severity = 0U;
+            	uint16_t gated_alert_duration_s = 0U;
+
+            	uint8_t gated_recommendation_code = 0U;
+            	uint8_t gated_recommendation_priority = 0U;
+
+
+
+            	/* --------------------------------------------------------------------------
+            	 * IMMOBILITY GATING
+            	 *
+            	 * Clinical risk فقط وقتی معتبر است که:
+            	 *   فشار/Exposure بالا باشد
+            	 *   و بیمار مدت کافی حرکت مؤثر نداشته باشد.
+            	 *
+            	 * اگر بیمار اخیراً حرکت کرده باشد:
+            	 *   heatmap همچنان نمایش داده می‌شود
+            	 *   اما risk/alert/recommendation فعال نمی‌شود.
+            	 * -------------------------------------------------------------------------- */
+
+            	uint8_t movement_warn_elapsed = 0U;
+            	uint8_t movement_alert_elapsed = 0U;
+
+            	/* --------------------------------------------------------------------------
+            	 * اگر زمان بدون حرکت از warning threshold عبور کرد
+            	 * اجازه WATCH risk داده می‌شود.
+            	 * -------------------------------------------------------------------------- */
+            	if (time_since_last_movement_s >=
+            	    g_risk_cfg.no_movement_warn_s)
+            	{
+            	  movement_warn_elapsed = 1U;
+            	}
+
+            	/* --------------------------------------------------------------------------
+            	 * اگر زمان بدون حرکت از alert threshold عبور کرد
+            	 * اجازه ALERT/CRITICAL داده می‌شود.
+            	 * -------------------------------------------------------------------------- */
+            	if (time_since_last_movement_s >=
+            	    g_risk_cfg.no_movement_alert_s)
+            	{
+            	  movement_alert_elapsed = 1U;
+            	}
+
+            	/* --------------------------------------------------------------------------
+            	 * WATCH:
+            	 * شروع نمایش risk سبک، بدون alert جدی.
+            	 * -------------------------------------------------------------------------- */
+            	if ((max_exposure_s >= g_risk_cfg.exposure_watch_s) &&
+            	    (movement_warn_elapsed != 0U))
+            	{
+            	  gated_risk_score = 25U;
+            	  gated_risk_level = 1U;
+            	}
+
+            	/* --------------------------------------------------------------------------
+            	 * ALERT:
+            	 * وقتی exposure به سطح alert رسید، alert و recommendation فعال می‌شوند.
+            	 * -------------------------------------------------------------------------- */
+            	if ((max_exposure_s >= g_risk_cfg.exposure_alert_s) &&
+            	    (movement_alert_elapsed != 0U))
+            	{
+            	  gated_risk_score = 60U;
+            	  gated_risk_level = 2U;
+
+            	  gated_alert_active = 1U;
+            	  gated_alert_type = 1U;
+            	  gated_alert_severity = 2U;
+            	  gated_alert_duration_s = max_exposure_s;
+
+            	  gated_recommendation_code = 1U;
+            	  gated_recommendation_priority = 2U;
+            	}
+
+            	/* --------------------------------------------------------------------------
+            	 * CRITICAL:
+            	 * exposure طولانی و جدی.
+            	 * -------------------------------------------------------------------------- */
+            	if ((max_exposure_s >= g_risk_cfg.exposure_critical_s) &&
+            	    (movement_alert_elapsed != 0U))
+            	{
+            	  gated_risk_score = 90U;
+            	  gated_risk_level = 3U;
+
+            	  gated_alert_active = 1U;
+            	  gated_alert_type = 1U;
+            	  gated_alert_severity = 3U;
+            	  gated_alert_duration_s = max_exposure_s;
+
+            	  gated_recommendation_code = 2U;
+            	  gated_recommendation_priority = 3U;
+            	}
+
+            	/* --------------------------------------------------------------------------
+            	 * DEBUG:
+            	 * Verify gated recommendation values before UART summary TX.
+            	 * -------------------------------------------------------------------------- */
+            	printf("GATED SUMMARY: "
+            	       "exp=%u "
+            	       "risk=%u "
+            	       "alert=%u "
+            	       "rec=%u "
+            	       "prio=%u\r\n",
+            	       max_exposure_s,
+            	       gated_risk_level,
+            	       gated_alert_active,
+            	       gated_recommendation_code,
+            	       gated_recommendation_priority);
+
+            	printf("GATED SUMMARY: exp=%u move=%u noMove=%u warn=%u alertT=%u risk=%u alert=%u rec=%u prio=%u\r\n",
+            	       max_exposure_s,
+            	       g_movement.detected,
+            	       time_since_last_movement_s,
+            	       g_risk_cfg.no_movement_warn_s,
+            	       g_risk_cfg.no_movement_alert_s,
+            	       gated_risk_level,
+            	       gated_alert_active,
+            	       gated_recommendation_code,
+            	       gated_recommendation_priority);
+
+
               ui_tx_ok = SerialLink_SendSummary_Async(
                   frame_id,
                   uptime_s,
-                  g_risk_result.score,
-                  g_risk_result.level,
+				  gated_risk_score,
+				  gated_risk_level,
                   g_movement.detected,
                   time_since_last_movement_s,
-                  g_alert.active,
-                  g_alert.type,
-                  g_alert.severity,
-                  (uint16_t)g_alert.duration_s,
-                  g_recommendation.code,
-                  g_recommendation.priority,
+				  gated_alert_active,
+				  gated_alert_type,
+				  gated_alert_severity,
+				  gated_alert_duration_s,
+				  gated_recommendation_code,
+				  gated_recommendation_priority,
                   g_zone_result.zone[ZONE_SACRUM].avg,
                   g_zone_result.zone[ZONE_SACRUM].peak,
                   g_zone_result.zone[ZONE_LEFT_HEEL].avg,
